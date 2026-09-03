@@ -36,6 +36,7 @@ export default function AdminDashboard() {
 
       setIsAdmin(true);
       fetchConfig();
+      fetchUsers();
     };
 
     const fetchConfig = async () => {
@@ -64,7 +65,17 @@ export default function AdminDashboard() {
     };
 
     checkAdmin();
-  }, [router]);
+
+    // Auto-refresh (Real-time polling) setiap 5 detik
+    const interval = setInterval(() => {
+      if (isAdmin) {
+        fetchConfig();
+        fetchUsers();
+      }
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [router, isAdmin]);
 
   const deleteUser = async (userId) => {
     if (!confirm("Yakin ingin menghapus pengguna ini? Tindakan ini tidak dapat dibatalkan!")) return;

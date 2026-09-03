@@ -539,6 +539,8 @@ export default function Page() {
     setTimeout(() => scrollToBottom(), 100);
 
     let currentChatId = activeChatId;
+    let resolveChatId;
+    let chatIdPromise = new Promise(res => { resolveChatId = res; });
 
     // Fitur Canggih: Background Database Sync (Fire-and-Forget)
     // Jangan biarkan database memperlambat AI. Jalankan di background!
@@ -555,11 +557,13 @@ export default function Page() {
               setSidebarChats(prev => [data, ...prev]);
             }
           }
+          resolveChatId(dbChatId);
           if (dbChatId) {
             await supabase.from('messages').insert({ chat_id: dbChatId, role: 'user', content: chatInput });
           }
         } catch (e) {
           console.warn("Background DB Sync failed:", e);
+          resolveChatId(null);
         }
       })();
     } else {
@@ -577,8 +581,10 @@ export default function Page() {
               return updated;
             });
           }
+          resolveChatId(guestChatId);
         } catch (e) {
           console.warn("Guest Sync failed:", e);
+          resolveChatId(null);
         }
       })();
     }
@@ -666,6 +672,13 @@ export default function Page() {
             }
           }
         }
+        
+        // Simpan balasan AI ke Supabase secara background
+        const finalChatId = await chatIdPromise;
+        if (user && finalChatId && aiText) {
+          supabase.from('messages').insert({ chat_id: finalChatId, role: 'assistant', content: aiText }).then();
+        }
+
       } catch (err) {
         if (retryCount < MAX_RETRIES && err.message !== "Rate Limit Terlampaui. Coba lagi dalam 1 jam.") {
           retryCount++;
