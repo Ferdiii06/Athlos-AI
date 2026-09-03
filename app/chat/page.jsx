@@ -349,6 +349,9 @@ export default function Page() {
           localStorage.removeItem('athlos_saved_password');
         }
         
+        // Membuka obrolan baru yang kosong khusus untuk user yang baru login
+        setChat([]);
+        setActiveChatId(null);
         setShowAuthModal(false);
       }
     } catch (error) {
@@ -368,9 +371,12 @@ export default function Page() {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider,
-        options: { redirectTo: window.location.origin }
+        options: { redirectTo: window.location.origin + '/chat' }
       });
       if (error) throw error;
+      
+      setChat([]);
+      setActiveChatId(null);
     } catch (error) {
       setAuthError(error.message);
     } finally {

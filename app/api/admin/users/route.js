@@ -14,12 +14,22 @@ const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
   }
 });
 
-export async function GET() {
+export async function GET(req) {
   if (!serviceKey) {
     return NextResponse.json({ error: "Service Role Key tidak dikonfigurasi" }, { status: 500 });
   }
 
   try {
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    
+    if (authError || !user || user.email !== 'fery883099@gmail.com') {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     // Memanggil API Admin Supabase untuk mengambil daftar semua pengguna
     const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
     
@@ -38,6 +48,16 @@ export async function DELETE(req) {
   }
 
   try {
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    
+    if (authError || !user || user.email !== 'fery883099@gmail.com') {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const { id } = await req.json();
     if (!id) return NextResponse.json({ error: "ID user diperlukan" }, { status: 400 });
 

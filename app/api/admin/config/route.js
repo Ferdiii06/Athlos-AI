@@ -17,10 +17,20 @@ const DEFAULT_CONFIG = {
   stats: { tokens: 0, cost: 0 }
 };
 
-export async function GET() {
+export async function GET(req) {
   if (!serviceKey) return NextResponse.json(DEFAULT_CONFIG);
 
   try {
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    
+    if (authError || !user || user.email !== 'fery883099@gmail.com') {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const { data, error } = await supabaseAdmin
       .from('system_config')
       .select('config')
@@ -43,6 +53,16 @@ export async function POST(req) {
   }
 
   try {
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    
+    if (authError || !user || user.email !== 'fery883099@gmail.com') {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const body = await req.json();
     
     // Ambil config saat ini dulu
