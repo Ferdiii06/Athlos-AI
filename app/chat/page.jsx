@@ -43,6 +43,7 @@ const Square = (p) => <BoxIcon name="bx-square" {...p} />;
 const RefreshCw = (p) => <BoxIcon name="bx-refresh" {...p} />;
 const ImageIcon = (p) => <BoxIcon name="bx-image" {...p} />;
 const XCircle = (p) => <BoxIcon name="bx-x-circle" {...p} />;
+const Trash2 = (p) => <BoxIcon name="bx-trash" {...p} />;
 const Search = (p) => <BoxIcon name="bx-search" {...p} />;
 const BroadcastIcon = (p) => <BoxIcon name="bx-broadcast" {...p} />;
 
@@ -187,6 +188,7 @@ export default function Page() {
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [bannedUsers, setBannedUsers] = useState([]);
 
   // Fitur 1: Search Chat History
   const [searchQuery, setSearchQuery] = useState('');
@@ -195,6 +197,8 @@ export default function Page() {
   const [captchaSum, setCaptchaSum] = useState({ a: 0, b: 0 });
   const [userCaptcha, setUserCaptcha] = useState('');
   const [isServerDown, setIsServerDown] = useState(false); // Feature 30
+
+  const isUserBanned = user && bannedUsers.includes(user.id);
 
   const generateCaptcha = () => setCaptchaSum({ a: Math.floor(Math.random() * 10) + 1, b: Math.floor(Math.random() * 10) + 1 });
 
@@ -221,6 +225,7 @@ export default function Page() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [previewHtml, setPreviewHtml] = useState(null);
   const [selectionPos, setSelectionPos] = useState(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
   const chatContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -253,15 +258,17 @@ export default function Page() {
   useEffect(() => {
     setGuestChatCount(parseInt(localStorage.getItem('guest_chat_count') || '0'));
     
-    // Fitur 56: Fetch Global Broadcast
+    // Fitur 56: Fetch Global Broadcast (Real-time Polling)
     const fetchBroadcast = async () => {
       try {
         const res = await fetch('/api/admin/config');
         const data = await res.json();
-        if (data?.broadcast) setBroadcastMessage(data.broadcast);
+        setBroadcastMessage(prev => prev !== data?.broadcast ? (data?.broadcast || '') : prev);
+        setBannedUsers(data?.banned_users || []);
       } catch (e) {}
     };
     fetchBroadcast();
+    const broadcastInterval = setInterval(fetchBroadcast, 15000); // 15 detik polling
     
     // Load Remember Me credentials
     const savedEmail = localStorage.getItem('athlos_saved_email');
@@ -275,6 +282,8 @@ export default function Page() {
         // Ignore decrypt error
       }
     }
+
+    return () => clearInterval(broadcastInterval);
   }, []);
 
   const fetchSidebarChats = async (userId) => {
@@ -282,29 +291,26 @@ export default function Page() {
     if (!error && data) setSidebarChats(data);
   };
 
-  const handleDeleteChat = async (e, chatId) => {
-    e.stopPropagation();
-    if (!confirm("Hapus obrolan ini?")) return;
+  const confirmDeleteChat = async () => {
+    const chatId = deleteConfirmId;
+    setDeleteConfirmId(null);
+    if (!chatId) return;
     
     if (user) {
       const { error } = await supabase.from('chats').delete().eq('id', chatId);
       if (error) {
-        alert("Gagal menghapus obrolan.");
+        toast.error("Gagal menghapus obrolan.");
         return;
       }
     }
     
-    setSidebarChats(prev => {
-      const updated = prev.filter(c => c.id !== chatId);
-      if (!user) {
-        localStorage.setItem('athlos_guest_chats', encryptData(updated));
-      }
-      return updated;
-    });
+    setSidebarChats(prev => prev.filter(c => c.id !== chatId));
     
     if (activeChatId === chatId) {
       clearChat();
     }
+    
+    toast.success("Obrolan berhasil dihapus.", { style: { background: '#333', color: '#fff' } });
   };
 
   // Auto-resize textarea
@@ -321,8 +327,8 @@ export default function Page() {
       if (session?.user) {
         fetchSidebarChats(session.user.id);
       } else {
-        const guestChats = decryptData(localStorage.getItem('athlos_guest_chats')) || [];
-        setSidebarChats(guestChats);
+        localStorage.removeItem('athlos_guest_chats');
+        setSidebarChats([]);
       }
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -330,8 +336,8 @@ export default function Page() {
       if (session?.user) {
         fetchSidebarChats(session.user.id);
       } else {
-        const guestChats = decryptData(localStorage.getItem('athlos_guest_chats')) || [];
-        setSidebarChats(guestChats);
+        localStorage.removeItem('athlos_guest_chats');
+        setSidebarChats([]);
       }
     });
     return () => subscription.unsubscribe();
@@ -475,17 +481,7 @@ export default function Page() {
   };
 
   useEffect(() => {
-    if (chat.length > 0 && activeChatId && !user) {
-      setSidebarChats(prev => {
-        const newChats = [...prev];
-        const chatIndex = newChats.findIndex(c => c.id === activeChatId);
-        if (chatIndex > -1) {
-          newChats[chatIndex].messages = chat;
-          localStorage.setItem('athlos_guest_chats', encryptData(newChats));
-        }
-        return newChats;
-      });
-    }
+    // Obrolan Guest tidak lagi disimpan ke local storage agar tidak tertampung
   }, [chat, activeChatId, user]);
 
   const handleScroll = () => {
@@ -606,11 +602,9 @@ export default function Page() {
             setActiveChatId(guestChatId);
             const title = chatInput.length > 30 ? chatInput.slice(0, 30) + '...' : chatInput;
             const newChatData = { id: guestChatId, title, created_at: new Date().toISOString(), messages: [] };
-            setSidebarChats(prev => {
-              const updated = [newChatData, ...prev];
-              localStorage.setItem('athlos_guest_chats', encryptData(updated));
-              return updated;
-            });
+            // Fitur: Obrolan Guest tidak ditampung di sidebar history
+            setSidebarChats([]);
+            localStorage.removeItem('athlos_guest_chats');
           }
           resolveChatId(guestChatId);
         } catch (e) {
@@ -640,9 +634,15 @@ export default function Page() {
         const payloadBody = { message: finalPayload, history: historyPayload, persona, aiEngine, isStream };
         if (currentImage) payloadBody.image = currentImage;
 
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+
         const response = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: headers,
           body: JSON.stringify(payloadBody),
           signal: abortControllerRef.current.signal
         });
@@ -815,6 +815,24 @@ export default function Page() {
         </div>
       )}
 
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-[#2f2f2f] w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-[#444] relative animate-in fade-in zoom-in-95 text-center">
+            <button onClick={() => setDeleteConfirmId(null)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20} /></button>
+            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-black mx-auto mb-3 shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+              <Trash2 size={24} />
+            </div>
+            <h3 className="text-xl font-bold mb-2">Hapus Obrolan?</h3>
+            <p className="text-sm text-gray-400 mb-6">Tindakan ini tidak dapat dibatalkan. Riwayat obrolan ini akan dihapus secara permanen dari server.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteConfirmId(null)} className="flex-1 py-2.5 bg-[#212121] border border-[#444] hover:bg-[#333] text-white rounded-xl font-semibold transition-colors text-sm">Batal</button>
+              <button onClick={confirmDeleteChat} className="flex-1 py-2.5 bg-white hover:bg-gray-200 text-black rounded-xl font-semibold transition-colors shadow-lg text-sm">Ya, Hapus</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAdmin && (
         <div className="fixed inset-0 bg-[#212121] z-[60] p-6 md:p-12 overflow-y-auto">
           <div className="max-w-4xl mx-auto">
@@ -864,7 +882,7 @@ export default function Page() {
                 <span className="truncate font-medium">{c.title}</span>
               </button>
               <button 
-                onClick={(e) => handleDeleteChat(e, c.id)} 
+                onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(c.id); }} 
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-400/10 rounded-md opacity-0 group-hover:opacity-100 transition-all duration-200"
                 title="Hapus obrolan"
               >
@@ -912,7 +930,7 @@ export default function Page() {
           ) : (
             <div className="mt-auto p-4 border-t border-white/5">
               <div className="bg-[#2f2f2f] rounded-xl p-4 border border-[#444] text-center shadow-lg relative overflow-hidden">
-                <div className="text-xs text-gray-400 mb-2">Guest Mode ({5 - guestChatCount} sisa)</div>
+                <div className="text-xs text-gray-400 mb-2">Guest Mode ({Math.max(0, 5 - guestChatCount)} sisa)</div>
                 <button onClick={() => setShowAuthModal(true)} className="w-full py-2 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition-colors z-10 relative shadow-sm">
                   Login / Daftar
                 </button>
@@ -1096,6 +1114,12 @@ export default function Page() {
                 </div>
               )}
 
+              {isUserBanned && (
+                <div className="w-full bg-red-500/20 border border-red-500/50 text-red-400 text-sm py-2 px-4 text-center rounded-2xl mb-2 flex items-center justify-center gap-2">
+                  <ShieldAlert size={16} /> Akun Anda telah diblokir oleh Admin dan tidak dapat mengirim pesan.
+                </div>
+              )}
+
               <div className="flex items-end bg-white/5 backdrop-blur-xl border border-white/20 rounded-3xl overflow-hidden focus-within:border-[#F9A48C]/50 focus-within:bg-white/10 transition-all shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative flex-col mx-2 md:mx-0">
 
                 {/* Fitur 21: Image Preview */}
@@ -1118,10 +1142,10 @@ export default function Page() {
                   <textarea
                     ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
-                    placeholder={!user && guestChatCount >= 999999 ? t.loginPrompt : t.inputPlaceholder}
+                    placeholder={isUserBanned ? "Akun Anda Diblokir Admin" : (!user && guestChatCount >= 5 ? "Batas gratis habis. Silakan Login." : t.inputPlaceholder)}
                     className="flex-1 bg-transparent py-3.5 px-4 outline-none text-white placeholder-gray-500 resize-none min-h-[52px] overflow-hidden block leading-relaxed"
                     rows={1}
-                    disabled={(!user && guestChatCount >= 999999) || loading}
+                    disabled={isUserBanned || (!user && guestChatCount >= 5) || loading}
                   />
 
                   {loading ? (
@@ -1129,7 +1153,7 @@ export default function Page() {
                       <Square size={18} fill="currentColor" />
                     </button>
                   ) : (
-                    <button onClick={() => sendChat()} disabled={(!input.trim() && !selectedImage) || (!user && guestChatCount >= 999999)} className="mb-1.5 mr-2 p-2.5 rounded-2xl bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] disabled:from-white/5 disabled:to-white/5 disabled:text-gray-500 transition-all self-end hover:shadow-[0_0_15px_rgba(255,190,152,0.4)] hover:scale-105 active:scale-95 disabled:scale-100 disabled:shadow-none shadow-md">
+                    <button onClick={() => sendChat()} disabled={(!input.trim() && !selectedImage) || (!user && guestChatCount >= 5) || isUserBanned} className="mb-1.5 mr-2 p-2.5 rounded-2xl bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] disabled:from-white/5 disabled:to-white/5 disabled:text-gray-500 transition-all self-end hover:shadow-[0_0_15px_rgba(255,190,152,0.4)] hover:scale-105 active:scale-95 disabled:scale-100 disabled:shadow-none shadow-md">
                       <Send size={18} />
                     </button>
                   )}

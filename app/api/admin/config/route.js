@@ -14,7 +14,8 @@ const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
 const DEFAULT_CONFIG = {
   broadcast: "",
   engines: { gemini: true, groq: true, openrouter: true },
-  stats: { tokens: 0, cost: 0 }
+  stats: { tokens: 0, cost: 0 },
+  banned_users: []
 };
 
 export async function GET(req) {
@@ -78,6 +79,7 @@ export async function POST(req) {
     const newConfig = { ...config, ...body };
     if (body.engines) newConfig.engines = { ...config.engines, ...body.engines };
     if (body.stats) newConfig.stats = { ...config.stats, ...body.stats };
+    if (body.banned_users !== undefined) newConfig.banned_users = body.banned_users;
 
     const { error } = await supabaseAdmin
       .from('system_config')

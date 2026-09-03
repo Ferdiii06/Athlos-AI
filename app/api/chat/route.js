@@ -58,6 +58,26 @@ const chatSchema = z.object({
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const blacklistedIPs = new Set();
 const requestCounts = new Map();
+const guestUsageCounts = new Map();
+
+function trackGuestUsage(ip) {
+  const now = Date.now();
+  const windowMs = 24 * 60 * 60 * 1000; // 24 hours
+  if (!guestUsageCounts.has(ip)) {
+    guestUsageCounts.set(ip, { count: 1, resetTime: now + windowMs });
+    return true;
+  }
+  const data = guestUsageCounts.get(ip);
+  if (now > data.resetTime) {
+    guestUsageCounts.set(ip, { count: 1, resetTime: now + windowMs });
+    return true;
+  }
+  if (data.count < 10) {
+    data.count++;
+    return true;
+  }
+  return false;
+}
 
 // Rate limiter sederhana in-memory (seperti di express)
 function rateLimit(ip) {
@@ -82,6 +102,26 @@ function rateLimit(ip) {
 export async function POST(req) {
   const ip = req.headers.get("x-forwarded-for") || "unknown";
 
+  const authHeader = req.headers.get("authorization");
+  let isAuthenticated = false;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    // Validasi token langsung ke Supabase Server
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+    if (user && !error) {
+      isAuthenticated = true;
+    } else {
+      return Response.json({ error: "Unauthorized: Invalid or expired token." }, { status: 401 });
+    }
+  }
+
+  if (!isAuthenticated) {
+    if (!trackGuestUsage(ip)) {
+      return Response.json({ error: "Guest Limit: IP Anda mencapai batas penggunaan tanpa login. Silakan daftar/login." }, { status: 403 });
+    }
+  }
+
   if (blacklistedIPs.has(ip)) {
     return Response.json({ error: "Access Denied: Your IP is blacklisted." }, { status: 403 });
   }
@@ -93,12 +133,17 @@ export async function POST(req) {
   try {
     const body = await req.json();
     
-    // WAF sederhana (Hanya mengecek input message, bukan history untuk mencegah false-positive pada kodingan)
+    // WAF Advanced (Hanya mengecek input message, bukan history untuk mencegah false-positive pada kodingan)
     const messageString = (body.message || "").toLowerCase();
-    const blockedPatterns = ['<script>', 'drop table ', 'union select '];
+    const blockedPatterns = [
+      '<script>', 'drop table ', 'union select ', 'delete from ', 'system(', 
+      'exec(', 'document.cookie', 'eval(', 'alert(', 'insert into ', 'update users set'
+    ];
     for (let pattern of blockedPatterns) {
       if (messageString.includes(pattern)) {
-        return Response.json({ error: "Security Exception: Malicious payload detected." }, { status: 403 });
+        // Otomatis masukkan ke blacklist jika mencoba injeksi
+        blacklistedIPs.add(ip);
+        return Response.json({ error: "Security Exception: Malicious payload detected. Your IP has been blacklisted." }, { status: 403 });
       }
     }
 

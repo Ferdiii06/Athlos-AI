@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
-import { ShieldAlert, Users, Activity, Settings, ArrowLeft, Megaphone, Power, DollarSign, Trash2, Mail, Calendar, LogIn } from 'lucide-react';
+import { ShieldAlert, Users, Activity, Settings, ArrowLeft, Megaphone, Power, DollarSign, Trash2, Mail, Calendar, LogIn, BarChart, Eye, Terminal, Ban } from 'lucide-react';
 import Link from 'next/link';
 
 // Inisialisasi Supabase
@@ -18,6 +18,7 @@ export default function AdminDashboard() {
   const [sysConfig, setSysConfig] = useState(null);
   const [usersList, setUsersList] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
+  const [spyMessages, setSpyMessages] = useState([]);
   const adminEmail = 'fery883099@gmail.com';
 
   useEffect(() => {
@@ -36,6 +37,7 @@ export default function AdminDashboard() {
 
       setIsAdmin(true);
       fetchConfig();
+      fetchUsers(); // Fix: also fetch users on mount
     };
 
     const getAuthHeaders = async () => {
@@ -72,7 +74,33 @@ export default function AdminDashboard() {
       }
     };
 
+    const fetchSpy = async () => {
+      try {
+        const headers = await getAuthHeaders();
+        const res = await fetch('/api/admin/spy', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setSpyMessages(data.messages || []);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
     checkAdmin();
+
+    // Polling setiap 10 detik agar terasa "Full Real-time"
+    const interval = setInterval(() => {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session && session.user.email === adminEmail) {
+          fetchConfig();
+          fetchUsers();
+          fetchSpy();
+        }
+      });
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, [router]);
 
   const getAuthHeaders = async () => {
@@ -104,6 +132,20 @@ export default function AdminDashboard() {
     }
   };
 
+  const toggleBanUser = async (userId) => {
+    const isBanned = sysConfig?.banned_users?.includes(userId);
+    if (!confirm(isBanned ? "Buka blokir pengguna ini?" : "Blokir pengguna ini? Mereka tidak akan bisa mengirim pesan ke AI!")) return;
+    
+    let newBannedUsers = sysConfig?.banned_users || [];
+    if (isBanned) {
+      newBannedUsers = newBannedUsers.filter(id => id !== userId);
+    } else {
+      newBannedUsers = [...newBannedUsers, userId];
+    }
+    
+    updateConfig({ banned_users: newBannedUsers });
+  };
+
   const updateConfig = async (newValues) => {
     try {
       const res = await fetch('/api/admin/config', {
@@ -117,6 +159,33 @@ export default function AdminDashboard() {
       console.error(e);
     }
   };
+
+  // Menghitung statistik pendaftaran 7 hari terakhir
+  const getRegistrationStats = () => {
+    const stats = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const count = usersList.filter(u => {
+        const uDate = new Date(u.created_at);
+        uDate.setHours(0, 0, 0, 0);
+        return uDate.getTime() === d.getTime();
+      }).length;
+      
+      stats.push({
+        date: d.toLocaleDateString('id-ID', { weekday: 'short' }), // misal: Sen, Sel
+        count: count,
+        fullDate: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+      });
+    }
+    return stats;
+  };
+
+  const regStats = getRegistrationStats();
+  const maxReg = Math.max(...regStats.map(s => s.count), 1); // minimal 1 untuk hindari div by zero
 
   if (loading) {
     return (
@@ -228,6 +297,77 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {/* Fitur Baru: Grafik Analitik & Live Spy */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-10">
+          
+          {/* Fitur 4: Grafik Analitik Pendaftaran 7 Hari Terakhir */}
+          <div className="bg-[#1e1e1e] rounded-2xl border border-gray-800 p-8 shadow-lg flex flex-col">
+            <h3 className="text-xl font-bold mb-4 border-b border-gray-700 pb-4 flex items-center gap-2">
+              <BarChart className="text-blue-400" /> Analitik Pendaftaran Harian
+            </h3>
+            <p className="text-sm text-gray-400 mb-6">Grafik pengguna baru yang mendaftar ke Athlos AI selama 7 hari terakhir.</p>
+            
+            <div className="flex-1 flex items-end justify-between gap-2 h-48 mt-auto pt-4 border-t border-gray-800/50">
+              {regStats.map((stat, i) => {
+                const heightPercent = (stat.count / maxReg) * 100;
+                return (
+                  <div key={i} className="flex flex-col items-center gap-2 group flex-1">
+                    <div className="relative w-full flex justify-center h-full items-end">
+                      {/* Tooltip */}
+                      <div className="absolute -top-8 bg-black text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                        {stat.count} user
+                      </div>
+                      {/* Bar */}
+                      <div 
+                        className="w-full max-w-[40px] bg-gradient-to-t from-blue-900/50 to-blue-500 rounded-t-sm transition-all duration-500 hover:brightness-125"
+                        style={{ height: `${Math.max(heightPercent, 5)}%` }} // minimal 5% tinggi agar terlihat
+                      ></div>
+                    </div>
+                    <div className="text-[10px] text-gray-400 uppercase tracking-wider text-center leading-tight">
+                      <span className="block font-bold text-gray-300">{stat.date}</span>
+                      <span>{stat.fullDate}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Fitur 1: Live Chat Spy */}
+          <div className="bg-[#1e1e1e] rounded-2xl border border-gray-800 p-8 shadow-lg flex flex-col">
+            <h3 className="text-xl font-bold mb-4 border-b border-gray-700 pb-4 flex items-center gap-2">
+              <Eye className="text-green-500" /> Live Chat Spy
+            </h3>
+            <p className="text-sm text-gray-400 mb-4 flex items-center justify-between">
+              <span>Mata-mata obrolan real-time (20 pesan terakhir).</span>
+              <span className="flex items-center gap-1 text-green-500 font-mono text-xs animate-pulse">
+                <Terminal size={14} /> LIVE
+              </span>
+            </p>
+            
+            <div className="bg-black/80 rounded-xl p-4 border border-gray-800 h-[300px] overflow-y-auto font-mono text-sm space-y-3 custom-scrollbar">
+              {spyMessages.length === 0 ? (
+                <div className="text-green-500/50 flex h-full items-center justify-center">
+                  Menunggu transmisi data...
+                </div>
+              ) : (
+                spyMessages.map((msg, i) => (
+                  <div key={i} className="border-b border-green-900/30 pb-3 last:border-0 last:pb-0">
+                    <div className="flex justify-between items-start mb-1 text-[10px] text-green-600/70">
+                      <span>ID: {msg.chat_id?.substring(0, 8)}...</span>
+                      <span>{new Date(msg.created_at).toLocaleTimeString('id-ID')}</span>
+                    </div>
+                    <div className="text-green-400 leading-relaxed break-words">
+                      <span className="text-green-500/50 mr-2">{'>'}</span> 
+                      {msg.content}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Tabel Daftar Pengguna Terdaftar */}
         <div className="mt-10 bg-[#1e1e1e] rounded-2xl border border-gray-800 shadow-lg overflow-hidden">
           <div className="p-6 border-b border-gray-800">
@@ -261,7 +401,14 @@ export default function AdminDashboard() {
                           <LogIn size={14} /> {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleDateString('id-ID') : '-'}
                         </div>
                       </td>
-                      <td className="p-4 text-center">
+                      <td className="p-4 text-center flex justify-center gap-2">
+                        <button
+                          onClick={() => toggleBanUser(u.id)}
+                          className={`p-2 rounded-lg transition-colors ${sysConfig?.banned_users?.includes(u.id) ? 'bg-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white' : 'bg-gray-500/10 text-gray-500 hover:bg-gray-500 hover:text-white'}`}
+                          title={sysConfig?.banned_users?.includes(u.id) ? "Buka Blokir (Unban)" : "Blokir Pengguna (Ban)"}
+                        >
+                          <Ban size={16} />
+                        </button>
                         <button
                           onClick={() => deleteUser(u.id)}
                           className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors"
