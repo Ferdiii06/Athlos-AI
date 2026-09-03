@@ -1,5 +1,25 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
+import fs from 'fs';
+import path from 'path';
+
+// Helper for config.json (Fitur 53 & 57)
+const CONFIG_PATH = path.join(process.cwd(), 'config.json');
+const getSysConfig = () => {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+  } catch (e) {
+    return { engines: { gemini: true, groq: true, openrouter: true }, stats: { tokens: 0, cost: 0 } };
+  }
+};
+const updateTokenUsage = (tokens) => {
+  try {
+    const conf = getSysConfig();
+    if (!conf.stats) conf.stats = { tokens: 0, cost: 0 };
+    conf.stats.tokens += tokens;
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(conf, null, 2));
+  } catch (e) {}
+};
 
 // Fitur 30: Optimasi Streaming Ekstrem menggunakan Edge Runtime
 // export const runtime = 'edge'; // Deprecated in Next.js 16
@@ -9,6 +29,7 @@ const chatSchema = z.object({
   image: z.string().optional(),
   persona: z.string().optional(),
   aiEngine: z.enum(["gemini", "groq", "openai", "openrouter"]).optional(),
+  isStream: z.boolean().optional(),
   history: z.array(z.object({
     role: z.enum(["user", "assistant", "model"]),
     text: z.string()
@@ -64,7 +85,7 @@ export async function POST(req) {
 
     chatSchema.parse(body);
 
-    const { message, image, history, persona, aiEngine } = body;
+    const { message, image, history, persona, aiEngine, isStream = true } = body;
     
     // Fitur 24: Logika Multi-Persona
     let sysInstruct = "Kamu adalah Athlos AI, asisten yang sangat cerdas, bijak, dan sopan. Jawablah setiap pertanyaan user dengan akurat sesuai konteks. Jangan pernah berhalusinasi atau memberikan informasi palsu.";
@@ -74,6 +95,13 @@ export async function POST(req) {
 
     // Penanaman Identitas Pembuat & Filosofi Athlos
     sysInstruct += " Jika user bertanya tentang siapa yang menciptakanmu, pembuatmu, atau arti/filosofi nama Athlos AI, jawablah dengan bangga dan detail bahwa kamu diciptakan oleh Ferdi, seorang mahasiswa dari Politeknik Elektronika Negeri Surabaya (PENS) jurusan Teknik Informatika. Jelaskan juga bahwa nama 'Athlos' berasal dari bahasa Yunani yang berarti 'perjuangan atau tugas berat untuk meraih kehormatan'. Filosofi ini mencerminkan prinsip seorang mahasiswa yang berjuang dan berdedikasi penuh untuk mengembangkan suatu produk teknologi AI dengan sangat akurat, canggih, dan bermanfaat. Jika ada yang membicarakan atau bertanya tentang sosial media pemilik/pembuat AI ini (Ferdi), silakan berikan link berikut ini dengan ramah: Instagram: https://www.instagram.com/ferdiii_f , LinkedIn: www.linkedin.com/in/ferryferdiansyah51 , Portofolio: ferdiansyah.web.id , TikTok: https://www.tiktok.com/@knownasferr .";
+
+    // Fitur 53: Record Input Tokens
+    const inputTokens = Math.ceil(((message || "").length) / 4);
+    if (inputTokens > 0) updateTokenUsage(inputTokens);
+    
+    // Fitur 57: Get System Config (Kill Switch)
+    const sysConfig = getSysConfig();
 
 
     let validHistory = (history || []).filter(
@@ -139,8 +167,9 @@ export async function POST(req) {
        // Deteksi niat mencari informasi terbaru (Internet)
        const needsInternet = message && message.match(/(hari ini|berita|terbaru|sekarang|cuaca|harga|update|2024|2025|2026)/i);
 
-       // 1. OPSI PERTAMA: GROQ (Sangat Cepat, tapi hanya bisa teks & offline)
-       if (!image && !needsInternet && process.env.GROQ_API_KEY) {
+       // 1. OPSI PERTAMA: GROQ (Sangat Cepat, LLaMA 3)
+       // Digunakan HANYA jika tidak ada gambar (Groq belum stabil untuk Vision di sini) dan tidak butuh internet
+       if (sysConfig.engines?.groq !== false && process.env.GROQ_API_KEY && !image && !needsInternet) {
           try {
              const messages = [{ role: 'system', content: sysInstruct }];
              for (const h of validHistory) messages.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.text });
@@ -149,10 +178,14 @@ export async function POST(req) {
              const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model: 'qwen/qwen3.8-27b', messages: messages, stream: true, temperature: 0.7 })
+                body: JSON.stringify({ model: 'qwen/qwen3.8-27b', messages: messages, stream: isStream, temperature: 0.7 })
              });
              
              if (response.ok) {
+                if (!isStream) {
+                   const data = await response.json();
+                   return Response.json({ text: data.choices[0].message.content });
+                }
                 return buildOpenAIStreamResponse(response);
              } else {
                 fallbackError += `Groq Error (${response.status}); `;
@@ -164,7 +197,7 @@ export async function POST(req) {
 
        // 2. OPSI KEDUA: GEMINI (Support Gambar, Smart, Default Google, Punya Akses Internet)
        // Jatuh ke sini jika Groq gagal, user mengirim gambar, ATAU butuh akses internet
-       if (process.env.GEMINI_API_KEY) {
+       if (sysConfig.engines?.gemini !== false && process.env.GEMINI_API_KEY) {
           try {
              const geminiConfig = { 
                 model: "gemini-2.5-flash", // Update to newer model for better tool support if available, or stick to flash
@@ -191,6 +224,33 @@ export async function POST(req) {
                 const mimeType = image.split(';')[0].split(':')[1];
                 const base64Data = image.split(',')[1];
                 contentParts.push({ inlineData: { data: base64Data, mimeType } });
+             }
+
+             if (!isStream) {
+                const result = await chat.sendMessage(contentParts);
+                let responseText = result.response.text();
+                
+                // Extract grounding metadata (search results) if present
+                let sources = [];
+                const groundingChunks = result.response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+                if (groundingChunks && Array.isArray(groundingChunks)) {
+                   groundingChunks.forEach(gChunk => {
+                      if (gChunk?.web?.uri && gChunk?.web?.title) {
+                         if (!sources.some(s => s.uri === gChunk.web.uri)) {
+                            sources.push(gChunk.web);
+                         }
+                      }
+                   });
+                }
+                
+                if (sources.length > 0) {
+                   responseText += "\n\n---\n**Sumber Referensi:**\n";
+                   sources.forEach((source, index) => {
+                      responseText += `${index + 1}. [${source.title}](${source.uri})\n`;
+                   });
+                }
+                
+                return Response.json({ text: responseText });
              }
 
              const result = await chat.sendMessageStream(contentParts);
@@ -249,8 +309,8 @@ export async function POST(req) {
           }
        }
 
-       // 3. OPSI KETIGA: OPENROUTER (Lapisan terakhir jika semua di atas gagal)
-       if (process.env.OPENROUTER_API_KEY) {
+       // 3. OPSI KETIGA: OPENROUTER (Fallback Terakhir jika Gemini error)
+       if (sysConfig.engines?.openrouter !== false && process.env.OPENROUTER_API_KEY) {
           try {
              const messages = [{ role: 'system', content: sysInstruct }];
              for (const h of validHistory) messages.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.text });
@@ -270,10 +330,14 @@ export async function POST(req) {
              const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model: 'liquid/lfm-2.5-2.6b:free', messages: messages, stream: true, temperature: 0.7 })
+                body: JSON.stringify({ model: 'liquid/lfm-2.5-2.6b:free', messages: messages, stream: isStream, temperature: 0.7 })
              });
              
              if (response.ok) {
+                if (!isStream) {
+                   const data = await response.json();
+                   return Response.json({ text: data.choices[0].message.content });
+                }
                 return buildOpenAIStreamResponse(response);
              } else {
                 fallbackError += `OpenRouter Error (${response.status}); `;

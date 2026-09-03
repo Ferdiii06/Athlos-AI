@@ -44,6 +44,7 @@ const RefreshCw = (p) => <BoxIcon name="bx-refresh" {...p} />;
 const ImageIcon = (p) => <BoxIcon name="bx-image" {...p} />;
 const XCircle = (p) => <BoxIcon name="bx-x-circle" {...p} />;
 const Search = (p) => <BoxIcon name="bx-search" {...p} />;
+const BroadcastIcon = (p) => <BoxIcon name="bx-broadcast" {...p} />;
 
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -150,7 +151,13 @@ const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, setPreview
                 <span className="font-medium">{match[1]}</span>
                 <div className="flex items-center gap-3">
                   {match[1] === 'html' && (
-                    <button onClick={() => setPreviewHtml(codeString)} className="text-gray-400 hover:text-green-400 transition-colors flex items-center gap-1 border border-gray-600 px-2 py-0.5 rounded-md hover:border-green-400/50">
+                    <button onClick={() => {
+                      let htmlContent = codeString;
+                      if (!htmlContent.includes('tailwindcss')) {
+                        htmlContent = `<script src="https://cdn.tailwindcss.com"></script>\n${htmlContent}`;
+                      }
+                      setPreviewHtml(htmlContent);
+                    }} className="text-gray-400 hover:text-green-400 transition-colors flex items-center gap-1 border border-gray-600 px-2 py-0.5 rounded-md hover:border-green-400/50">
                       <Play size={12} /> <span className="text-[10px] uppercase font-bold">Preview</span>
                     </button>
                   )}
@@ -171,12 +178,15 @@ export default function Page() {
 
   const [user, setUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isStream, setIsStream] = useState(true);
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [showAuthPassword, setShowAuthPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [authMode, setAuthMode] = useState('login');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [broadcastMessage, setBroadcastMessage] = useState('');
 
   // Fitur 1: Search Chat History
   const [searchQuery, setSearchQuery] = useState('');
@@ -242,7 +252,29 @@ export default function Page() {
 
   useEffect(() => {
     setGuestChatCount(parseInt(localStorage.getItem('guest_chat_count') || '0'));
-    // We purposefully leave chat array empty initially to show the default welcome screen
+    
+    // Fitur 56: Fetch Global Broadcast
+    const fetchBroadcast = async () => {
+      try {
+        const res = await fetch('/api/admin/config');
+        const data = await res.json();
+        if (data?.broadcast) setBroadcastMessage(data.broadcast);
+      } catch (e) {}
+    };
+    fetchBroadcast();
+    
+    // Load Remember Me credentials
+    const savedEmail = localStorage.getItem('athlos_saved_email');
+    const savedPassword = localStorage.getItem('athlos_saved_password');
+    if (savedEmail && savedPassword) {
+      setAuthEmail(savedEmail);
+      try {
+        setAuthPassword(decryptData(savedPassword));
+        setRememberMe(true);
+      } catch (e) {
+        // Ignore decrypt error
+      }
+    }
   }, []);
 
   const fetchSidebarChats = async (userId) => {
@@ -308,6 +340,15 @@ export default function Page() {
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
         if (error) throw error;
+        
+        if (rememberMe) {
+          localStorage.setItem('athlos_saved_email', authEmail);
+          localStorage.setItem('athlos_saved_password', encryptData(authPassword));
+        } else {
+          localStorage.removeItem('athlos_saved_email');
+          localStorage.removeItem('athlos_saved_password');
+        }
+        
         setShowAuthModal(false);
       }
     } catch (error) {
@@ -559,7 +600,7 @@ export default function Page() {
           finalPayload += "\n\n[System Note: Pengguna sepertinya sedang sedih. Tolong jawab dengan penuh empati, memotivasi, sangat hangat dan menghibur.]";
         }
 
-        const payloadBody = { message: finalPayload, history: historyPayload, persona, aiEngine };
+        const payloadBody = { message: finalPayload, history: historyPayload, persona, aiEngine, isStream };
         if (currentImage) payloadBody.image = currentImage;
 
         const response = await fetch('/api/chat', {
@@ -579,6 +620,20 @@ export default function Page() {
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
           throw new Error(errData.error || `Gagal menghubungi server (HTTP ${response.status}).`);
+        }
+
+        if (!isStream) {
+          const data = await response.json();
+          setChat(prev => {
+            const newChat = [...prev];
+            newChat[newChat.length - 1].text = data.text;
+            return newChat;
+          });
+          if (chatContainerRef.current) {
+             const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+             if (scrollHeight - scrollTop - clientHeight < 150) chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight });
+          }
+          return;
         }
 
         const reader = response.body.getReader();
@@ -643,6 +698,14 @@ export default function Page() {
 
   return (
     <div className="flex h-[100dvh] bg-[#161312] text-gray-100 font-sans overflow-hidden selection:bg-[#FFBE98]/30 relative">
+      {/* Fitur 56: Global Broadcast Banner */}
+      {broadcastMessage && (
+        <div className="absolute top-0 left-0 w-full z-50 bg-yellow-500 text-black text-center py-2 px-4 text-sm font-bold shadow-lg flex items-center justify-center gap-2">
+          <BroadcastIcon size={18} /> {broadcastMessage}
+          <button onClick={() => setBroadcastMessage('')} className="absolute right-4 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100"><X size={20} /></button>
+        </div>
+      )}
+
       {/* Aurora Background (Subtle) */}
       <div className="absolute top-[-20%] right-[-10%] w-[60%] h-[60%] bg-[#F9A48C]/5 blur-[150px] rounded-full mix-blend-screen pointer-events-none animate-pulse duration-[10000ms]"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-[#FFBE98]/5 blur-[150px] rounded-full mix-blend-screen pointer-events-none"></div>
@@ -669,6 +732,13 @@ export default function Page() {
                   {showAuthPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
+
+              {authMode === 'login' && (
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="rememberMe" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="w-4 h-4 rounded bg-[#212121] border-[#444] accent-white cursor-pointer" />
+                  <label htmlFor="rememberMe" className="text-sm text-gray-400 select-none cursor-pointer">Ingat Saya</label>
+                </div>
+              )}
 
               {authMode === 'register' && (
                 <div className="flex items-center gap-3 bg-[#212121] p-2.5 rounded-lg border border-[#444]">
@@ -849,6 +919,12 @@ export default function Page() {
               <button onClick={() => setLang(lang === 'id' ? 'en' : 'id')} className="flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-white px-2 py-1 rounded bg-[#2f2f2f] transition-colors">
                 <Globe size={14} /> {lang.toUpperCase()}
               </button>
+              
+              {/* Stream Toggle */}
+              <button onClick={() => setIsStream(!isStream)} className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded transition-colors ${isStream ? 'text-green-400 bg-green-400/10' : 'text-gray-400 bg-[#2f2f2f] hover:text-white'}`}>
+                {isStream ? 'STREAM: ON' : 'STREAM: OFF'}
+              </button>
+
               {!user && (
                 <button onClick={() => setShowAuthModal(true)} className="hidden md:flex items-center gap-1 px-3 py-1.5 bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 rounded-lg text-xs font-bold hover:bg-yellow-500/30 transition-colors">
                   <Crown size={14} /> {t.upgrade}

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
-import { ShieldAlert, Users, Activity, Settings, ArrowLeft } from 'lucide-react';
+import { ShieldAlert, Users, Activity, Settings, ArrowLeft, Megaphone, Power, DollarSign, Trash2, Mail, Calendar, LogIn } from 'lucide-react';
 import Link from 'next/link';
 
 // Inisialisasi Supabase
@@ -15,6 +15,9 @@ export default function AdminDashboard() {
   const router = useRouter();
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [sysConfig, setSysConfig] = useState(null);
+  const [usersList, setUsersList] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
   const adminEmail = 'fery883099@gmail.com';
 
   useEffect(() => {
@@ -22,24 +25,81 @@ export default function AdminDashboard() {
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
-        // Belum login, tendang ke halaman utama
         router.replace('/');
         return;
       }
 
       if (session.user.email !== adminEmail) {
-        // Login tapi bukan admin, tendang ke halaman utama
         router.replace('/');
         return;
       }
 
-      // Lolos verifikasi!
       setIsAdmin(true);
+      fetchConfig();
+    };
+
+    const fetchConfig = async () => {
+      try {
+        const res = await fetch('/api/admin/config');
+        const data = await res.json();
+        setSysConfig(data);
+      } catch (e) {
+        console.error(e);
+      }
       setLoading(false);
+    };
+
+    const fetchUsers = async () => {
+      try {
+        const res = await fetch('/api/admin/users');
+        if (res.ok) {
+          const data = await res.json();
+          setUsersList(data.users || []);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoadingUsers(false);
+      }
     };
 
     checkAdmin();
   }, [router]);
+
+  const deleteUser = async (userId) => {
+    if (!confirm("Yakin ingin menghapus pengguna ini? Tindakan ini tidak dapat dibatalkan!")) return;
+    
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: userId })
+      });
+      if (res.ok) {
+        setUsersList(prev => prev.filter(u => u.id !== userId));
+      } else {
+        const data = await res.json();
+        alert(`Gagal: ${data.error}`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Terjadi kesalahan jaringan");
+    }
+  };
+
+  const updateConfig = async (newValues) => {
+    try {
+      const res = await fetch('/api/admin/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newValues)
+      });
+      const data = await res.json();
+      setSysConfig(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   if (loading) {
     return (
@@ -71,22 +131,24 @@ export default function AdminDashboard() {
 
         {/* Statistik Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+          {/* Fitur 53: Token & Cost Calculator */}
+          <div className="bg-[#1e1e1e] p-6 rounded-2xl border border-gray-800 shadow-lg">
+            <div className="flex items-center gap-4 mb-4 text-green-400">
+              <DollarSign size={28} />
+              <h2 className="text-xl font-semibold text-white">Token & Estimasi Biaya</h2>
+            </div>
+            <p className="text-4xl font-bold">{sysConfig?.stats?.tokens.toLocaleString() || 0} <span className="text-sm font-normal text-gray-400">Tokens</span></p>
+            <p className="text-xl text-yellow-500 mt-2 font-mono">${(sysConfig?.stats?.tokens * 0.000002).toFixed(4)}</p>
+            <p className="text-xs text-gray-500 mt-1">Estimasi biaya API global ($2 / 1M tokens)</p>
+          </div>
+
           <div className="bg-[#1e1e1e] p-6 rounded-2xl border border-gray-800 shadow-lg">
             <div className="flex items-center gap-4 mb-4 text-blue-400">
               <Users size={28} />
               <h2 className="text-xl font-semibold text-white">Total Pengguna</h2>
             </div>
-            <p className="text-4xl font-bold">1</p>
-            <p className="text-sm text-gray-500 mt-2">Data dummy (belum terhubung ke DB)</p>
-          </div>
-
-          <div className="bg-[#1e1e1e] p-6 rounded-2xl border border-gray-800 shadow-lg">
-            <div className="flex items-center gap-4 mb-4 text-green-400">
-              <Activity size={28} />
-              <h2 className="text-xl font-semibold text-white">Total Chat Hari Ini</h2>
-            </div>
-            <p className="text-4xl font-bold">0</p>
-            <p className="text-sm text-gray-500 mt-2">Data dummy (belum terhubung ke DB)</p>
+            <p className="text-4xl font-bold">{loadingUsers ? '...' : usersList.length}</p>
+            <p className="text-sm text-gray-500 mt-2">Data real-time dari Supabase</p>
           </div>
 
           <div className="bg-[#1e1e1e] p-6 rounded-2xl border border-gray-800 shadow-lg">
@@ -95,17 +157,108 @@ export default function AdminDashboard() {
               <h2 className="text-xl font-semibold text-white">Status API</h2>
             </div>
             <p className="text-2xl font-bold text-green-500">Normal</p>
-            <p className="text-sm text-gray-500 mt-2">Gemini API Aktif</p>
+            <p className="text-sm text-gray-500 mt-2">Config Aktif</p>
           </div>
         </div>
 
         {/* Area Konten Tambahan */}
-        <div className="bg-[#1e1e1e] rounded-2xl border border-gray-800 p-8 shadow-lg">
-          <h3 className="text-xl font-bold mb-4 border-b border-gray-700 pb-4">Pengaturan Sistem (Segera Hadir)</h3>
-          <p className="text-gray-400 leading-relaxed">
-            Halaman ini saat ini sudah dikunci rapat. Tidak ada orang yang bisa mengakses halaman ini selain Anda (fery883099@gmail.com). 
-            Nantinya, kita bisa menyambungkan halaman ini untuk menarik data riil dari Supabase agar Anda bisa melihat semua aktivitas pengguna.
-          </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Fitur 56: Global Broadcast */}
+          <div className="bg-[#1e1e1e] rounded-2xl border border-gray-800 p-8 shadow-lg">
+            <h3 className="text-xl font-bold mb-4 border-b border-gray-700 pb-4 flex items-center gap-2"><Megaphone className="text-yellow-400" /> Global Broadcast</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Pesan ini akan muncul sebagai banner peringatan di bagian atas chat seluruh pengguna. Kosongkan untuk menghapus.
+            </p>
+            <div className="flex flex-col gap-3">
+              <textarea 
+                value={sysConfig?.broadcast || ""} 
+                onChange={(e) => setSysConfig({...sysConfig, broadcast: e.target.value})}
+                placeholder="Tulis pesan darurat atau pengumuman..."
+                className="w-full bg-[#121212] border border-gray-700 rounded-lg p-3 text-white outline-none focus:border-yellow-500 h-24 resize-none"
+              ></textarea>
+              <button 
+                onClick={() => updateConfig({ broadcast: sysConfig?.broadcast })}
+                className="bg-yellow-500 text-black font-bold py-2 px-4 rounded-lg hover:bg-yellow-400 transition-colors self-end"
+              >
+                Broadcast Sekarang
+              </button>
+            </div>
+          </div>
+
+          {/* Fitur 57: Kill Switch */}
+          <div className="bg-[#1e1e1e] rounded-2xl border border-gray-800 p-8 shadow-lg">
+            <h3 className="text-xl font-bold mb-4 border-b border-gray-700 pb-4 flex items-center gap-2"><Power className="text-red-500" /> Kill Switch Engine AI</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Matikan atau nyalakan mesin AI tertentu secara real-time. Jika dimatikan, sistem akan melakukan fallback ke mesin lain.
+            </p>
+            
+            <div className="space-y-4">
+              {['gemini', 'groq', 'openrouter'].map(engine => (
+                <div key={engine} className="flex justify-between items-center bg-[#2f2f2f] p-4 rounded-lg">
+                  <span className="font-medium capitalize text-lg">{engine} API</span>
+                  <button 
+                    onClick={() => {
+                      const newState = !sysConfig?.engines?.[engine];
+                      updateConfig({ engines: { [engine]: newState } });
+                    }}
+                    className={`w-14 h-7 rounded-full relative transition-colors ${sysConfig?.engines?.[engine] ? 'bg-green-500' : 'bg-red-500'}`}
+                  >
+                    <div className={`w-5 h-5 bg-white rounded-full absolute top-1 transition-all ${sysConfig?.engines?.[engine] ? 'left-8' : 'left-1'}`}></div>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Tabel Daftar Pengguna Terdaftar */}
+        <div className="mt-10 bg-[#1e1e1e] rounded-2xl border border-gray-800 shadow-lg overflow-hidden">
+          <div className="p-6 border-b border-gray-800">
+             <h3 className="text-2xl font-bold flex items-center gap-2"><Users className="text-blue-400" /> Daftar Pengguna Terdaftar</h3>
+             <p className="text-sm text-gray-400 mt-1">Daftar semua orang yang pernah mendaftar dan login di Athlos AI.</p>
+          </div>
+          <div className="overflow-x-auto">
+             <table className="w-full text-left">
+               <thead className="bg-[#2f2f2f] text-gray-300">
+                 <tr>
+                   <th className="p-4 font-semibold text-sm">Email</th>
+                   <th className="p-4 font-semibold text-sm">ID Pengguna</th>
+                   <th className="p-4 font-semibold text-sm">Bergabung</th>
+                   <th className="p-4 font-semibold text-sm">Terakhir Login</th>
+                   <th className="p-4 font-semibold text-sm text-center">Aksi</th>
+                 </tr>
+               </thead>
+               <tbody className="divide-y divide-gray-800">
+                 {loadingUsers ? (
+                   <tr><td colSpan="5" className="p-8 text-center text-gray-500">Memuat data pengguna...</td></tr>
+                 ) : usersList.length === 0 ? (
+                   <tr><td colSpan="5" className="p-8 text-center text-gray-500">Belum ada pengguna.</td></tr>
+                 ) : (
+                   usersList.map((u) => (
+                     <tr key={u.id} className="hover:bg-[#252525] transition-colors">
+                       <td className="p-4 font-medium flex items-center gap-2"><Mail size={16} className="text-gray-500"/> {u.email}</td>
+                       <td className="p-4 text-xs font-mono text-gray-500">{u.id}</td>
+                       <td className="p-4 text-sm text-gray-400 flex items-center gap-1"><Calendar size={14}/> {new Date(u.created_at).toLocaleDateString('id-ID')}</td>
+                       <td className="p-4 text-sm text-gray-400">
+                         <div className="flex items-center gap-1">
+                           <LogIn size={14}/> {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleDateString('id-ID') : '-'}
+                         </div>
+                       </td>
+                       <td className="p-4 text-center">
+                         <button 
+                           onClick={() => deleteUser(u.id)}
+                           className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors"
+                           title="Hapus Pengguna"
+                         >
+                           <Trash2 size={16} />
+                         </button>
+                       </td>
+                     </tr>
+                   ))
+                 )}
+               </tbody>
+             </table>
+          </div>
         </div>
 
       </div>

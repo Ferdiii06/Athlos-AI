@@ -145,7 +145,7 @@ export default function LandingPage() {
             <Link href="/chat" className="nav-item text-sm font-medium text-gray-300 hover:text-[#FFBE98] transition-colors hidden md:block">
               Sign Up
             </Link>
-            <Link href="/chat" className="nav-item magnetic inline-flex items-center justify-center text-sm font-bold bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] px-4 py-2 rounded-lg hover:shadow-[0_0_20px_rgba(255,190,152,0.4)] transition-all">
+            <Link href="/chat" className="nav-item magnetic inline-flex items-center justify-center text-sm font-bold bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] px-5 py-2.5 leading-normal rounded-lg hover:shadow-[0_0_20px_rgba(255,190,152,0.4)] transition-all">
               Start Chatting
             </Link>
           </div>
