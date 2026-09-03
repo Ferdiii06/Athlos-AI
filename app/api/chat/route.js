@@ -1,23 +1,42 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
-import fs from 'fs';
-import path from 'path';
+import { createClient } from '@supabase/supabase-js';
 
-// Helper for config.json (Fitur 53 & 57)
-const CONFIG_PATH = path.join(process.cwd(), 'config.json');
-const getSysConfig = () => {
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL, 
+  process.env.SUPABASE_SERVICE_ROLE_KEY || '', 
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
+
+// Cache konfigurasi selama 30 detik di memori Vercel Lambda
+let cachedConfig = { engines: { gemini: true, groq: true, openrouter: true }, stats: { tokens: 0, cost: 0 } };
+let lastConfigFetch = 0;
+
+const getSysConfig = async () => {
+  if (Date.now() - lastConfigFetch < 30000) return cachedConfig;
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-  } catch (e) {
-    return { engines: { gemini: true, groq: true, openrouter: true }, stats: { tokens: 0, cost: 0 } };
-  }
+    const { data } = await supabaseAdmin.from('system_config').select('config').eq('id', 1).single();
+    if (data?.config) {
+       cachedConfig = data.config;
+       lastConfigFetch = Date.now();
+    }
+  } catch (e) {}
+  return cachedConfig;
 };
-const updateTokenUsage = (tokens) => {
+
+const updateTokenUsage = async (newTokens) => {
   try {
-    const conf = getSysConfig();
-    if (!conf.stats) conf.stats = { tokens: 0, cost: 0 };
-    conf.stats.tokens += tokens;
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(conf, null, 2));
+    const conf = await getSysConfig();
+    const newTotal = (conf.stats?.tokens || 0) + newTokens;
+    
+    // Update local cache optimistically
+    if (!cachedConfig.stats) cachedConfig.stats = { tokens: 0, cost: 0 };
+    cachedConfig.stats.tokens = newTotal;
+    
+    // Fire and forget background update to Supabase
+    supabaseAdmin.from('system_config').update({ 
+       config: { ...cachedConfig, stats: { ...cachedConfig.stats, tokens: newTotal } } 
+    }).eq('id', 1).then();
   } catch (e) {}
 };
 
@@ -101,7 +120,7 @@ export async function POST(req) {
     if (inputTokens > 0) updateTokenUsage(inputTokens);
     
     // Fitur 57: Get System Config (Kill Switch)
-    const sysConfig = getSysConfig();
+    const sysConfig = await getSysConfig();
 
 
     let validHistory = (history || []).filter(

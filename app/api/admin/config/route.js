@@ -1,54 +1,72 @@
-import fs from 'fs';
-import path from 'path';
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
-const CONFIG_PATH = path.join(process.cwd(), 'config.json');
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Helper to initialize config if not exists
-const getStoredConfig = () => {
-  if (!fs.existsSync(CONFIG_PATH)) {
-    const defaultConfig = {
-      broadcast: "",
-      engines: { gemini: true, groq: true, openrouter: true },
-      stats: { tokens: 0, cost: 0 }
-    };
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(defaultConfig, null, 2));
-    return defaultConfig;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-  } catch (e) {
-    return {
-      broadcast: "",
-      engines: { gemini: true, groq: true, openrouter: true },
-      stats: { tokens: 0, cost: 0 }
-    };
-  }
+// Pastikan Service Role Key tersedia
+const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
+  auth: { autoRefreshToken: false, persistSession: false }
+});
+
+const DEFAULT_CONFIG = {
+  broadcast: "",
+  engines: { gemini: true, groq: true, openrouter: true },
+  stats: { tokens: 0, cost: 0 }
 };
 
 export async function GET() {
+  if (!serviceKey) return NextResponse.json(DEFAULT_CONFIG);
+
   try {
-    const config = getStoredConfig();
-    return NextResponse.json(config);
+    const { data, error } = await supabaseAdmin
+      .from('system_config')
+      .select('config')
+      .eq('id', 1)
+      .single();
+
+    if (error || !data) {
+      return NextResponse.json(DEFAULT_CONFIG);
+    }
+    return NextResponse.json(data.config);
   } catch (error) {
-    return NextResponse.json({ error: "Failed to read config" }, { status: 500 });
+    console.error("Gagal mengambil config:", error.message);
+    return NextResponse.json(DEFAULT_CONFIG);
   }
 }
 
 export async function POST(req) {
+  if (!serviceKey) {
+    return NextResponse.json({ error: "Service Role Key tidak dikonfigurasi" }, { status: 500 });
+  }
+
   try {
     const body = await req.json();
-    const config = getStoredConfig();
     
-    const newConfig = { ...config, ...body };
+    // Ambil config saat ini dulu
+    const { data: currentData } = await supabaseAdmin
+      .from('system_config')
+      .select('config')
+      .eq('id', 1)
+      .single();
+
+    const config = currentData?.config || DEFAULT_CONFIG;
+    
     // Merge nested objects properly
+    const newConfig = { ...config, ...body };
     if (body.engines) newConfig.engines = { ...config.engines, ...body.engines };
     if (body.stats) newConfig.stats = { ...config.stats, ...body.stats };
-    
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(newConfig, null, 2));
-    
+
+    const { error } = await supabaseAdmin
+      .from('system_config')
+      .update({ config: newConfig })
+      .eq('id', 1);
+
+    if (error) throw error;
+
     return NextResponse.json(newConfig);
   } catch (error) {
-    return NextResponse.json({ error: "Failed to update config" }, { status: 500 });
+    console.error("Gagal update config:", error.message);
+    return NextResponse.json({ error: "Gagal update config" }, { status: 500 });
   }
 }
