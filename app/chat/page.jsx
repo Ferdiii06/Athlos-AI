@@ -282,6 +282,31 @@ export default function Page() {
     if (!error && data) setSidebarChats(data);
   };
 
+  const handleDeleteChat = async (e, chatId) => {
+    e.stopPropagation();
+    if (!confirm("Hapus obrolan ini?")) return;
+    
+    if (user) {
+      const { error } = await supabase.from('chats').delete().eq('id', chatId);
+      if (error) {
+        alert("Gagal menghapus obrolan.");
+        return;
+      }
+    }
+    
+    setSidebarChats(prev => {
+      const updated = prev.filter(c => c.id !== chatId);
+      if (!user) {
+        localStorage.setItem('athlos_guest_chats', encryptData(updated));
+      }
+      return updated;
+    });
+    
+    if (activeChatId === chatId) {
+      clearChat();
+    }
+  };
+
   // Auto-resize textarea
   useEffect(() => {
     if (inputRef.current) {
@@ -833,10 +858,19 @@ export default function Page() {
           </div>
           <div className="text-[10px] font-bold text-gray-500 mb-3 px-2 uppercase tracking-widest">{t.recent}</div>
           {sidebarChats.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase())).map(c => (
-            <button key={c.id} onClick={() => loadChat(c.id)} className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-sm text-left truncate transition-all duration-300 border ${activeChatId === c.id ? 'bg-gradient-to-r from-[#FFBE98]/20 to-transparent border-[#FFBE98]/30 text-white shadow-[inset_2px_0_0_#FFBE98]' : 'bg-transparent border-transparent text-gray-400 hover:text-white hover:bg-white/5'}`}>
-              <MessageSquare size={16} className={`shrink-0 ${activeChatId === c.id ? 'text-[#FFBE98]' : ''}`} />
-              <span className="truncate font-medium">{c.title}</span>
-            </button>
+            <div key={c.id} className="relative group w-full">
+              <button onClick={() => loadChat(c.id)} className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-sm text-left truncate transition-all duration-300 border pr-10 ${activeChatId === c.id ? 'bg-gradient-to-r from-[#FFBE98]/20 to-transparent border-[#FFBE98]/30 text-white shadow-[inset_2px_0_0_#FFBE98]' : 'bg-transparent border-transparent text-gray-400 hover:text-white hover:bg-white/5'}`}>
+                <MessageSquare size={16} className={`shrink-0 ${activeChatId === c.id ? 'text-[#FFBE98]' : ''}`} />
+                <span className="truncate font-medium">{c.title}</span>
+              </button>
+              <button 
+                onClick={(e) => handleDeleteChat(e, c.id)} 
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-400/10 rounded-md opacity-0 group-hover:opacity-100 transition-all duration-200"
+                title="Hapus obrolan"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
           ))}
           {sidebarChats.length === 0 && (
             <div className="text-xs text-gray-500 px-2 italic">Belum ada riwayat obrolan.</div>
