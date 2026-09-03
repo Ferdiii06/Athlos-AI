@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+:root {
+  --bg-app: #f8fafc;
+  --bg-card: #ffffff;
+  --text-primary: #0f172a;
+  --border-ui: #e2e8f0;
+}
+
+.dark {
+  --bg-app: #020617;
+  --bg-card: #0f172a;
+  --text-primary: #f1f5f9;
+  --border-ui: #1e293b;
+}
+
+body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  margin: 0;
+  transition: background-color 0.3s ease;
+}
+
+.chat-container {
+  scrollbar-width: thin;
+  scrollbar-color: #3b82f6 transparent;
+}
