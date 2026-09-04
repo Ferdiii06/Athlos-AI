@@ -758,6 +758,9 @@ export default function Page() {
           await attemptFetch(); // recursive retry
         } else {
           setChat(prev => {
+            if (prev.length === 0) {
+              return [{ role: 'assistant', text: `❌ **Error:** ${err.message}` }];
+            }
             const newChat = [...prev];
             newChat[newChat.length - 1].text = `❌ **Error:** ${err.message}`;
             return newChat;
