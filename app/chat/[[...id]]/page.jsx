@@ -916,17 +916,9 @@ export default function Page() {
       )}
 
       <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:-ml-64'} fixed md:relative z-40 w-64 h-full bg-[#161312]/80 backdrop-blur-2xl transition-all duration-300 flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.5)] md:shadow-none border-r border-white/5`}>
-        <div className="p-4 flex flex-col gap-3 border-b border-white/5 shrink-0">
-          <div className="flex items-center justify-between">
-            <Link href="/" className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-colors" title="Home">
-              <Home size={18} />
-            </Link>
-            <button onClick={() => setSidebarOpen(false)} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-colors" title="Tutup Sidebar">
-              <X size={18} />
-            </button>
-          </div>
-          <button onClick={clearChat} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] font-bold hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_15px_rgba(255,190,152,0.3)]">
-            <Plus size={20} /> Obrolan Baru
+        <div className="p-4 flex items-center justify-end border-b border-white/5 shrink-0">
+          <button onClick={() => setSidebarOpen(false)} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-colors" title="Tutup Sidebar">
+            <X size={18} />
           </button>
         </div>
 
@@ -943,6 +935,9 @@ export default function Page() {
               />
             </div>
           </div>
+          <button onClick={clearChat} className="w-full flex items-center justify-center gap-2 mb-4 p-3 rounded-xl bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] font-bold hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_15px_rgba(255,190,152,0.3)]">
+            <Plus size={20} /> Obrolan Baru
+          </button>
           <div className="text-[10px] font-bold text-gray-500 mb-3 px-2 uppercase tracking-widest">{t.recent}</div>
           {sidebarChats.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase())).map(c => (
             <div key={c.id} className="relative group w-full">
@@ -967,55 +962,46 @@ export default function Page() {
           )}
         </div>
 
-        <div className="p-4 border-t border-white/5 mt-auto">
+        <div className="p-4 border-t border-white/5 mt-auto flex flex-col gap-1.5">
           {user ? (
-            <div className="bg-[#2f2f2f] p-3 rounded-xl border border-[#444]">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2 truncate">
-                  {user.user_metadata?.avatar_url ? (
-                    <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-8 h-8 rounded-full shadow-inner object-cover" />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center font-bold text-xs shadow-inner">
-                      {user.email?.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="truncate min-w-0">
-                    <div className="text-xs font-medium truncate">{user.email}</div>
-                    <div className="text-[10px] text-yellow-400 flex items-center gap-1"><Crown size={10} /> Pro Member</div>
+            <>
+              <div className="flex items-center gap-3 px-2 py-2 mb-2 border-b border-white/5">
+                {user.user_metadata?.avatar_url ? (
+                  <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-9 h-9 rounded-full object-cover border border-white/10" />
+                ) : (
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center font-bold text-sm text-white">
+                    {user.email?.charAt(0).toUpperCase()}
                   </div>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={handleLogout} className="flex-1 py-1.5 bg-[#444] hover:bg-[#555] rounded-lg text-xs font-medium text-gray-300 transition-colors flex items-center justify-center gap-1">
-                  <LogOut size={12} /> Keluar
-                </button>
-                {user.email.includes('admin') && (
-                  <button onClick={() => setShowAdmin(true)} className="flex-1 py-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1">
-                    <LayoutDashboard size={12} /> Admin
-                  </button>
                 )}
-                <button onClick={() => setLang(lang === 'id' ? 'en' : 'id')} className="py-1.5 px-2 bg-[#444] hover:bg-[#555] rounded-lg text-xs font-medium text-gray-300 transition-colors flex items-center justify-center" title="Ubah Bahasa">
-                  <Globe size={14} />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-auto p-4 border-t border-white/5">
-              <div className="bg-[#2f2f2f] rounded-xl p-4 border border-[#444] text-center shadow-lg relative overflow-hidden">
-                <div className="text-xs text-gray-400 mb-2">Guest Mode ({Math.max(0, 5 - guestChatCount)} sisa)</div>
-                <button onClick={() => setShowAuthModal(true)} className="w-full py-2 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition-colors z-10 relative shadow-sm mb-2">
-                  Login / Daftar
-                </button>
-                <div className="flex gap-2">
-                  <button onClick={() => setShowAuthModal(true)} className="flex-1 py-1.5 bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 rounded-lg text-xs font-bold hover:bg-yellow-500/30 transition-colors flex justify-center items-center gap-1">
-                    <Crown size={14} /> {t.upgrade}
-                  </button>
-                  <button onClick={() => setLang(lang === 'id' ? 'en' : 'id')} className="py-1.5 px-3 bg-[#444] hover:bg-[#555] rounded-lg text-xs font-medium text-gray-300 transition-colors flex items-center justify-center" title="Ubah Bahasa">
-                    <Globe size={14} />
-                  </button>
+                <div className="truncate min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-white truncate">{user.email.split('@')[0]}</div>
+                  <div className="text-[10px] text-yellow-400 font-medium tracking-wide">PRO MEMBER</div>
                 </div>
               </div>
-            </div>
+              
+              <Link href="/" className="flex items-center gap-3 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
+                <Home size={16} /> Beranda
+              </Link>
+              {user.email.includes('admin') && (
+                <button onClick={() => setShowAdmin(true)} className="flex items-center gap-3 px-3 py-2 text-sm text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors text-left">
+                  <LayoutDashboard size={16} /> Admin Panel
+                </button>
+              )}
+
+              <button onClick={handleLogout} className="flex items-center gap-3 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-lg transition-colors text-left">
+                <LogOut size={16} /> Keluar
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href="/" className="flex items-center gap-3 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors mb-2">
+                <Home size={16} /> Beranda
+              </Link>
+              <button onClick={() => setShowAuthModal(true)} className="w-full py-2 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2 text-sm">
+                <User size={16} /> Login / Daftar
+              </button>
+
+            </>
           )}
         </div>
       </div>
