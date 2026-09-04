@@ -22,11 +22,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
       <head>
         <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet' />
       </head>
-      <body className="h-full w-full flex flex-col m-0 p-0 overflow-hidden">{children}</body>
+      <body className="h-full w-full m-0 p-0" suppressHydrationWarning>{children}</body>
     </html>
   );
 }
