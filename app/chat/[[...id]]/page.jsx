@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -174,6 +175,10 @@ const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, setPreview
 });
 
 export default function Page() {
+  const params = useParams();
+  const router = useRouter();
+  const chatIdFromUrl = params?.id?.[0] || null;
+
   const [lang, setLang] = useState('id'); // Feature 50
   const t = T[lang];
 
@@ -342,6 +347,18 @@ export default function Page() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    // Sinkronisasi rute URL dengan obrolan yang aktif
+    if (chatIdFromUrl && chatIdFromUrl !== activeChatId) {
+      // Pastikan kita sudah selesai mengecek auth state (user) dan sidebar load jika guest
+      if (user !== undefined) {
+        loadChat(chatIdFromUrl);
+      }
+    } else if (!chatIdFromUrl && activeChatId) {
+      clearChat();
+    }
+  }, [chatIdFromUrl, user, sidebarChats]);
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -528,10 +545,14 @@ export default function Page() {
     }
   };
 
+
+
   const clearChat = () => {
+    stopGenerating();
     setChat([]);
     setActiveChatId(null);
     if (window.innerWidth < 768) setSidebarOpen(false);
+    router.push('/chat');
   };
 
   // Feature 46: Auto-Retry Mechanism integrated inside sendChat
@@ -582,6 +603,7 @@ export default function Page() {
               dbChatId = data.id;
               setActiveChatId(dbChatId);
               setSidebarChats(prev => [data, ...prev]);
+              window.history.pushState(null, '', '/chat/' + dbChatId);
             }
           }
           resolveChatId(dbChatId);
@@ -605,6 +627,7 @@ export default function Page() {
             // Fitur: Obrolan Guest tidak ditampung di sidebar history
             setSidebarChats([]);
             localStorage.removeItem('athlos_guest_chats');
+            window.history.pushState(null, '', '/chat/' + guestChatId);
           }
           resolveChatId(guestChatId);
         } catch (e) {
@@ -655,6 +678,11 @@ export default function Page() {
         if (response.status === 429) throw new Error("Rate Limit Terlampaui. Coba lagi dalam 1 jam.");
         if (response.status === 403) throw new Error("Akses Ditolak: Fitur WAF/Honeypot memblokir IP Anda karena aktivitas mencurigakan.");
         if (!response.ok) {
+          if (response.status === 401) {
+            await supabase.auth.signOut();
+            setUser(null);
+            throw new Error("Sesi login Anda telah berakhir atau tidak valid. Silakan logout dan login kembali.");
+          }
           const errData = await response.json().catch(() => ({}));
           throw new Error(errData.error || `Gagal menghubungi server (HTTP ${response.status}).`);
         }
@@ -662,13 +690,19 @@ export default function Page() {
         if (!isStream) {
           const data = await response.json();
           setChat(prev => {
+            if (prev.length === 0) return prev;
             const newChat = [...prev];
             newChat[newChat.length - 1].text = data.text;
             return newChat;
           });
           if (chatContainerRef.current) {
              const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-             if (scrollHeight - scrollTop - clientHeight < 150) chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight });
+             const isNearBottom = scrollHeight - scrollTop - clientHeight < 200;
+             if (isNearBottom) {
+               setTimeout(() => {
+                 if (chatContainerRef.current) chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
+               }, 10);
+             }
           }
           return;
         }
@@ -690,13 +724,19 @@ export default function Page() {
                   const data = JSON.parse(line.replace('data: ', ''));
                   aiText += data.text;
                   setChat(prev => {
+                    if (prev.length === 0) return prev;
                     const newChat = [...prev];
                     newChat[newChat.length - 1].text = aiText;
                     return newChat;
                   });
                   if (chatContainerRef.current) {
                     const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-                    if (scrollHeight - scrollTop - clientHeight < 150) chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight });
+                    const isNearBottom = scrollHeight - scrollTop - clientHeight < 200;
+                    if (isNearBottom) {
+                      setTimeout(() => {
+                        if (chatContainerRef.current) chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight });
+                      }, 10);
+                    }
                   }
                 } catch (e) { /* ignore parse error */ }
               }
@@ -741,7 +781,7 @@ export default function Page() {
   };
 
   return (
-    <div className="flex h-[100dvh] bg-[#161312] text-gray-100 font-sans overflow-hidden selection:bg-[#FFBE98]/30 relative">
+    <div className="fixed inset-0 w-screen h-screen flex bg-[#161312] text-gray-100 font-sans overflow-hidden selection:bg-[#FFBE98]/30">
       {/* Fitur 56: Global Broadcast Banner */}
       {broadcastMessage && (
         <div className="absolute top-0 left-0 w-full z-50 bg-yellow-500 text-black text-center py-2 px-4 text-sm font-bold shadow-lg flex items-center justify-center gap-2">
@@ -755,6 +795,30 @@ export default function Page() {
       <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-[#FFBE98]/5 blur-[150px] rounded-full mix-blend-screen pointer-events-none"></div>
 
       <Toaster position="top-center" toastOptions={{ className: 'text-sm font-medium border border-white/10 bg-black/50 backdrop-blur-md text-white' }} />
+
+      {/* HTML Preview Modal */}
+      {previewHtml && (
+        <div className="fixed inset-0 bg-black/90 z-[70] flex items-center justify-center p-4 md:p-8 backdrop-blur-md">
+          <div className="bg-[#1e1e1e] w-full h-full max-w-6xl rounded-2xl flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] border border-[#333] relative animate-in fade-in zoom-in-95 overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#252525]">
+              <div className="flex items-center gap-3 text-white font-semibold">
+                <Play className="text-green-400" size={18} /> UI/UX Preview (Code Result)
+              </div>
+              <button onClick={() => setPreviewHtml(null)} className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors flex items-center gap-2">
+                <X size={20} /> <span className="text-sm font-bold">Tutup Preview</span>
+              </button>
+            </div>
+            <div className="flex-1 bg-white relative w-full h-full">
+              <iframe 
+                srcDoc={previewHtml} 
+                className="w-full h-full border-none bg-white"
+                sandbox="allow-scripts allow-same-origin allow-modals allow-forms"
+                title="HTML Preview"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAuthModal && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -851,13 +915,18 @@ export default function Page() {
         </div>
       )}
 
-      <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:relative z-40 w-64 h-full bg-[#161312]/80 backdrop-blur-2xl transition-transform duration-300 flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.5)] md:shadow-none border-r border-white/5`}>
-        <div className="p-4 flex items-center justify-between gap-2">
-          <button onClick={clearChat} className="flex-1 flex items-center justify-center gap-2 p-2.5 rounded-xl bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] font-bold hover:shadow-[0_0_20px_rgba(255,190,152,0.4)] transition-all hover:scale-[1.02] active:scale-95 text-sm">
-            <Plus size={18} /> {t.newChat}
-          </button>
-          <button onClick={() => setSidebarOpen(false)} className="md:hidden p-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white transition-colors">
-            <X size={20} />
+      <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:-ml-64'} fixed md:relative z-40 w-64 h-full bg-[#161312]/80 backdrop-blur-2xl transition-all duration-300 flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.5)] md:shadow-none border-r border-white/5`}>
+        <div className="p-4 flex flex-col gap-3 border-b border-white/5 shrink-0">
+          <div className="flex items-center justify-between">
+            <Link href="/" className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-colors" title="Home">
+              <Home size={18} />
+            </Link>
+            <button onClick={() => setSidebarOpen(false)} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-colors" title="Tutup Sidebar">
+              <X size={18} />
+            </button>
+          </div>
+          <button onClick={clearChat} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] font-bold hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_15px_rgba(255,190,152,0.3)]">
+            <Plus size={20} /> Obrolan Baru
           </button>
         </div>
 
@@ -877,7 +946,7 @@ export default function Page() {
           <div className="text-[10px] font-bold text-gray-500 mb-3 px-2 uppercase tracking-widest">{t.recent}</div>
           {sidebarChats.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase())).map(c => (
             <div key={c.id} className="relative group w-full">
-              <button onClick={() => loadChat(c.id)} className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-sm text-left truncate transition-all duration-300 border pr-10 ${activeChatId === c.id ? 'bg-gradient-to-r from-[#FFBE98]/20 to-transparent border-[#FFBE98]/30 text-white shadow-[inset_2px_0_0_#FFBE98]' : 'bg-transparent border-transparent text-gray-400 hover:text-white hover:bg-white/5'}`}>
+              <button onClick={() => router.push('/chat/' + c.id)} className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-sm text-left truncate transition-all duration-300 border pr-10 ${activeChatId === c.id ? 'bg-gradient-to-r from-[#FFBE98]/20 to-transparent border-[#FFBE98]/30 text-white shadow-[inset_2px_0_0_#FFBE98]' : 'bg-transparent border-transparent text-gray-400 hover:text-white hover:bg-white/5'}`}>
                 <MessageSquare size={16} className={`shrink-0 ${activeChatId === c.id ? 'text-[#FFBE98]' : ''}`} />
                 <span className="truncate font-medium">{c.title}</span>
               </button>
@@ -925,15 +994,26 @@ export default function Page() {
                     <LayoutDashboard size={12} /> Admin
                   </button>
                 )}
+                <button onClick={() => setLang(lang === 'id' ? 'en' : 'id')} className="py-1.5 px-2 bg-[#444] hover:bg-[#555] rounded-lg text-xs font-medium text-gray-300 transition-colors flex items-center justify-center" title="Ubah Bahasa">
+                  <Globe size={14} />
+                </button>
               </div>
             </div>
           ) : (
             <div className="mt-auto p-4 border-t border-white/5">
               <div className="bg-[#2f2f2f] rounded-xl p-4 border border-[#444] text-center shadow-lg relative overflow-hidden">
                 <div className="text-xs text-gray-400 mb-2">Guest Mode ({Math.max(0, 5 - guestChatCount)} sisa)</div>
-                <button onClick={() => setShowAuthModal(true)} className="w-full py-2 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition-colors z-10 relative shadow-sm">
+                <button onClick={() => setShowAuthModal(true)} className="w-full py-2 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition-colors z-10 relative shadow-sm mb-2">
                   Login / Daftar
                 </button>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowAuthModal(true)} className="flex-1 py-1.5 bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 rounded-lg text-xs font-bold hover:bg-yellow-500/30 transition-colors flex justify-center items-center gap-1">
+                    <Crown size={14} /> {t.upgrade}
+                  </button>
+                  <button onClick={() => setLang(lang === 'id' ? 'en' : 'id')} className="py-1.5 px-3 bg-[#444] hover:bg-[#555] rounded-lg text-xs font-medium text-gray-300 transition-colors flex items-center justify-center" title="Ubah Bahasa">
+                    <Globe size={14} />
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -974,36 +1054,18 @@ export default function Page() {
           <button onClick={() => setIsServerDown(false)} className="mt-8 px-6 py-2 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition-colors">Tutup Peringatan</button>
         </div>
       ) : (
-        <div className="flex-1 flex flex-col min-w-0 relative">
-          <div className="flex items-center justify-between p-3 border-b border-white/10 bg-white/5 backdrop-blur-md z-10 sticky top-0 shadow-sm">
-            <div className="flex items-center">
-              <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-[#2f2f2f] rounded-md md:hidden"><Menu size={20} /></button>
-              <Link href="/" className="p-2 hover:bg-[#2f2f2f] rounded-md text-gray-400 hover:text-white transition-colors ml-2 md:ml-4 mr-1" title="Kembali ke Landing Page">
-                <Home size={20} />
-              </Link>
-              <span className="font-medium text-gray-200 flex items-center gap-2">Athlos AI <span className="text-xs text-gray-500 bg-[#2f2f2f] px-2 py-0.5 rounded">v3.0</span></span>
-            </div>
-
-            <div className="flex items-center gap-2 pr-2">
-
-              {/* Feature 50: I18n Toggle */}
-              <button onClick={() => setLang(lang === 'id' ? 'en' : 'id')} className="flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-white px-2 py-1 rounded bg-[#2f2f2f] transition-colors">
-                <Globe size={14} /> {lang.toUpperCase()}
-              </button>
-              
-              {/* Stream Toggle */}
-              <button onClick={() => setIsStream(!isStream)} className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded transition-colors ${isStream ? 'text-green-400 bg-green-400/10' : 'text-gray-400 bg-[#2f2f2f] hover:text-white'}`}>
-                {isStream ? 'STREAM: ON' : 'STREAM: OFF'}
-              </button>
-
-              {!user && (
-                <button onClick={() => setShowAuthModal(true)} className="hidden md:flex items-center gap-1 px-3 py-1.5 bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 rounded-lg text-xs font-bold hover:bg-yellow-500/30 transition-colors">
-                  <Crown size={14} /> {t.upgrade}
-                </button>
-              )}
-              <button onClick={() => { }} className="p-2 hover:bg-[#2f2f2f] rounded-md text-gray-400 hover:text-white transition-colors" title="Export Chat to TXT"><Download size={18} /></button>
-            </div>
-          </div>
+        <div className="flex-1 h-screen w-full flex flex-col min-w-0 relative">
+          
+          {/* Floating Sidebar Toggle (menggantikan Navbar agar lebih clean) */}
+          {!sidebarOpen && (
+            <button 
+              onClick={() => setSidebarOpen(true)} 
+              className="fixed top-4 left-4 z-20 p-2.5 bg-[#2f2f2f]/80 hover:bg-[#3f3f3f] backdrop-blur-md rounded-xl text-gray-300 hover:text-white transition-all shadow-[0_4px_15px_rgba(0,0,0,0.3)] border border-white/10 group flex items-center justify-center"
+              title="Buka Sidebar"
+            >
+              <Menu size={20} className="group-hover:scale-110 transition-transform" />
+            </button>
+          )}
 
           <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto pb-44 relative scroll-smooth">
             {chat.length === 0 ? (
@@ -1091,8 +1153,8 @@ export default function Page() {
             </button>
           )}
 
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#201B1A] via-[#201B1A]/90 to-transparent pt-6 pb-6 px-4 md:px-0 z-10">
-            <div className="max-w-3xl mx-auto relative group">
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#161312] via-[#161312]/95 to-transparent pt-10 pb-3 md:pb-4 px-4 md:px-0 z-10 pointer-events-none">
+            <div className="max-w-3xl mx-auto relative group pointer-events-auto">
 
               {showTemplates && (
                 <div className="absolute bottom-full mb-2 left-0 w-64 bg-[#2f2f2f] border border-[#444] rounded-lg shadow-xl overflow-hidden z-20 animate-in fade-in slide-in-from-bottom-2">

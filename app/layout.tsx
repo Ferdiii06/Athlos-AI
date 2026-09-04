@@ -26,7 +26,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <head>
         <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet' />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="h-full w-full flex flex-col m-0 p-0 overflow-hidden">{children}</body>
     </html>
   );
 }
