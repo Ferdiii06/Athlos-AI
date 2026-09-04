@@ -133,19 +133,19 @@ export default function LandingPage() {
 
       {/* Navbar */}
       <nav className="fixed top-0 left-0 right-0 w-full z-50 border-b border-white/5 bg-[#201B1A]/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="nav-item flex items-center gap-2 font-bold text-xl tracking-tight">
-            <img src="/Athlos AI.png" alt="Athlos AI Logo" className="w-8 h-8 object-contain" />
-            Athlos <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FFBE98] to-[#F9A48C]">AI</span>
+        <div className="max-w-7xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between">
+          <div className="nav-item flex items-center gap-2 font-bold text-lg md:text-xl tracking-tight shrink-0">
+            <img src="/Athlos AI.png" alt="Athlos AI Logo" className="w-8 h-8 object-contain shrink-0" />
+            <span className="hidden sm:inline">Athlos</span> <span className="hidden sm:inline text-transparent bg-clip-text bg-gradient-to-r from-[#FFBE98] to-[#F9A48C]">AI</span>
           </div>
-          <div className="flex items-center gap-4 md:gap-6">
+          <div className="flex items-center gap-3 md:gap-6 shrink-0">
             <Link href="/chat" className="nav-item text-sm font-medium text-gray-300 hover:text-[#FFBE98] transition-colors">
               Login
             </Link>
             <Link href="/chat" className="nav-item text-sm font-medium text-gray-300 hover:text-[#FFBE98] transition-colors">
               Daftar
             </Link>
-            <Link href="/chat" className="nav-item magnetic inline-flex items-center justify-center text-sm font-bold bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] px-5 py-2.5 leading-normal rounded-lg hover:shadow-[0_0_20px_rgba(255,190,152,0.4)] transition-all">
+            <Link href="/chat" className="nav-item magnetic hidden md:inline-flex items-center justify-center text-sm font-bold bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] px-5 py-2.5 leading-normal rounded-lg hover:shadow-[0_0_20px_rgba(255,190,152,0.4)] transition-all">
               Start Chatting
             </Link>
           </div>
