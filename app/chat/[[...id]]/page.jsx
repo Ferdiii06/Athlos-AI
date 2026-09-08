@@ -1,8 +1,9 @@
 'use client';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
+import pptxgen from "pptxgenjs";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 const BoxIcon = ({ name, size, color, className, style, onClick, ...rest }) => (
@@ -24,6 +25,7 @@ const Loader2 = (p) => <BoxIcon name="bx-loader-alt bx-spin" {...p} />;
 const Copy = (p) => <BoxIcon name="bx-copy" {...p} />;
 const Check = (p) => <BoxIcon name="bx-check" {...p} />;
 const ArrowDown = (p) => <BoxIcon name="bx-down-arrow-alt" {...p} />;
+const Presentation = (p) => <BoxIcon name="bx-slideshow" {...p} />;
 const Mic = (p) => <BoxIcon name="bx-microphone" {...p} />;
 const MicOff = (p) => <BoxIcon name="bx-microphone-off" {...p} />;
 const Volume2 = (p) => <BoxIcon name="bx-volume-full" {...p} />;
@@ -47,6 +49,8 @@ const XCircle = (p) => <BoxIcon name="bx-x-circle" {...p} />;
 const Trash2 = (p) => <BoxIcon name="bx-trash" {...p} />;
 const Search = (p) => <BoxIcon name="bx-search" {...p} />;
 const BroadcastIcon = (p) => <BoxIcon name="bx-broadcast" {...p} />;
+const Maximize = (p) => <BoxIcon name="bx-expand" {...p} />;
+const Code = (p) => <BoxIcon name="bx-code-alt" {...p} />;
 
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -65,7 +69,9 @@ const PROMPT_TEMPLATES = [
   { icon: '💻', category: 'Coding', text: 'Buatkan contoh kode React sederhana untuk fitur: \n\n' },
   { icon: '📝', category: 'Jurnal', text: 'Bantu saya menulis entri jurnal/refleksi hari ini tentang: \n\n' },
   { icon: '📚', category: 'Belajar', text: 'Tolong jelaskan konsep ini dengan bahasa yang sangat sederhana layaknya untuk anak umur 10 tahun.' },
-  { icon: '💼', category: 'Profesional', text: 'Tolong perbaiki grammar dan tata bahasa dari teks berikut agar terlihat profesional: \n\n' }
+  { icon: '💼', category: 'Profesional', text: 'Tolong perbaiki grammar dan tata bahasa dari teks berikut agar terlihat profesional: \n\n' },
+  { icon: '✍️', category: 'Blogger', text: 'Bertindaklah sebagai penulis blog SEO profesional. Tolong buatkan sebuah artikel blog terstruktur, menarik, dan SEO-friendly dengan judul/topik: \n\n' },
+  { icon: '⚙️', category: 'Workflow', text: 'Buatkan workflow JSON untuk alur otomatisasi berikut: \n\n' }
 ];
 
 // Fitur 28: Smart Reply Suggestions
@@ -138,7 +144,7 @@ const T = {
   }
 };
 
-const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, setPreviewHtml }) {
+const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, openCanvas }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}
@@ -148,7 +154,7 @@ const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, setPreview
           const codeString = String(children).replace(/\n$/, '');
 
           return !inline && match ? (
-            <div className="my-4 rounded-lg overflow-hidden border border-[#333] shadow-md">
+            <div className="my-4 rounded-lg overflow-hidden border border-[#333] shadow-md group/code">
               <div className="flex items-center justify-between px-4 py-2 bg-[#2f2f2f] text-xs font-sans text-gray-400 border-b border-[#333]">
                 <span className="font-medium">{match[1]}</span>
                 <div className="flex items-center gap-3">
@@ -158,11 +164,14 @@ const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, setPreview
                       if (!htmlContent.includes('tailwindcss')) {
                         htmlContent = `<script src="https://cdn.tailwindcss.com"></script>\n${htmlContent}`;
                       }
-                      setPreviewHtml(htmlContent);
+                      openCanvas({ type: 'html', content: htmlContent });
                     }} className="text-gray-400 hover:text-green-400 transition-colors flex items-center gap-1 border border-gray-600 px-2 py-0.5 rounded-md hover:border-green-400/50">
                       <Play size={12} /> <span className="text-[10px] uppercase font-bold">Preview</span>
                     </button>
                   )}
+                  <button onClick={() => openCanvas({ type: 'code', content: codeString, language: match[1] })} className="text-gray-400 hover:text-blue-400 transition-colors flex items-center gap-1 border border-gray-600 px-2 py-0.5 rounded-md hover:border-blue-400/50 opacity-0 group-hover/code:opacity-100">
+                    <Maximize size={12} /> <span className="text-[10px] uppercase font-bold">Canvas</span>
+                  </button>
                   <CopyButton text={codeString} />
                 </div>
               </div>
@@ -177,7 +186,15 @@ const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, setPreview
 export default function Page() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const chatIdFromUrl = params?.id?.[0] || null;
+
+  const [chat, setChat] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [activeChatId, setActiveChatId] = useState(chatIdFromUrl);
+  const [canvasState, setCanvasState] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);;
 
   const [lang, setLang] = useState('id'); // Feature 50
   const t = T[lang];
@@ -211,20 +228,24 @@ export default function Page() {
     if (authMode === 'register') generateCaptcha();
   }, [authMode]);
 
+  useEffect(() => {
+    const prompt = searchParams?.get('prompt');
+    if (prompt && input === '') {
+      setInput(prompt);
+      router.replace('/chat');
+    }
+  }, [searchParams]);
+
   // Using state instead of initial function to avoid hydration mismatch
   const [guestChatCount, setGuestChatCount] = useState(0);
   const [showAdmin, setShowAdmin] = useState(false);
 
-  const [chat, setChat] = useState([]);
-  const [activeChatId, setActiveChatId] = useState(null);
   const [sidebarChats, setSidebarChats] = useState([]);
   const [persona, setPersona] = useState('normal');
   const [aiEngine, setAiEngine] = useState('openrouter');
+  const [factCheck, setFactCheck] = useState(false);
+  const [autoPilot, setAutoPilot] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
-
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -253,7 +274,7 @@ export default function Page() {
   };
 
   const stopGenerating = () => {
-    if (abortControllerRef.current) {
+    if (abortControllerRef.current && loading) {
       abortControllerRef.current.abort();
       setLoading(false);
       toast.error('Jawaban dihentikan', { style: { background: '#333', color: '#fff' } });
@@ -356,9 +377,12 @@ export default function Page() {
         loadChat(chatIdFromUrl);
       }
     } else if (!chatIdFromUrl && activeChatId) {
-      clearChat();
+      // Hindari race-condition dengan delay Next.js useParams setelah history.pushState
+      if (window.location.pathname === '/chat') {
+        clearChat();
+      }
     }
-  }, [chatIdFromUrl, user, sidebarChats]);
+  }, [chatIdFromUrl, user, sidebarChats, activeChatId]);
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -508,7 +532,9 @@ export default function Page() {
   };
 
   const scrollToBottom = () => {
-    if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
+    }
   };
 
   const handleRegenerate = () => {
@@ -533,6 +559,10 @@ export default function Page() {
         const formattedChat = data.map(msg => ({ role: msg.role === 'user' ? 'user' : 'assistant', text: msg.content }));
         setChat(formattedChat);
         setActiveChatId(chatId);
+        setShowScrollButton(false);
+        setTimeout(() => {
+          if (chatContainerRef.current) chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'auto' });
+        }, 50);
         if (window.innerWidth < 768) setSidebarOpen(false);
       }
     } else {
@@ -540,12 +570,55 @@ export default function Page() {
       if (chatData) {
         setChat(chatData.messages || []);
         setActiveChatId(chatId);
+        setShowScrollButton(false);
+        setTimeout(() => {
+          if (chatContainerRef.current) chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'auto' });
+        }, 50);
         if (window.innerWidth < 768) setSidebarOpen(false);
       }
     }
   };
 
-
+  const handleExportPPT = (text) => {
+    try {
+      const pptx = new pptxgen();
+      
+      const lines = text.split('\n');
+      let currentSlide = pptx.addSlide();
+      currentSlide.addText("Athlos AI Presentation", { x: 1, y: 0.5, fontSize: 24, bold: true, color: '363636' });
+      
+      let currentY = 1.5;
+      
+      for (const line of lines) {
+        if (currentY > 4.5) {
+          currentSlide = pptx.addSlide();
+          currentY = 0.5;
+        }
+        
+        if (line.startsWith('#')) {
+          currentSlide = pptx.addSlide();
+          const level = line.match(/^#+/)[0].length;
+          const cleanText = line.replace(/^#+\s*/, '').replace(/\*\*/g, '');
+          currentSlide.addText(cleanText, { x: 1, y: 0.5, fontSize: 28 - (level * 2), bold: true, color: '111111' });
+          currentY = 1.5;
+        } else if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+          const cleanText = line.trim().replace(/^[-*]\s*/, '').replace(/\*\*/g, '');
+          currentSlide.addText([{ text: cleanText, options: { bullet: true } }], { x: 1.5, y: currentY, fontSize: 16, color: '333333' });
+          currentY += 0.4;
+        } else if (line.trim().length > 0) {
+          const cleanText = line.replace(/\*\*/g, '');
+          currentSlide.addText(cleanText, { x: 1, y: currentY, fontSize: 14, color: '666666' });
+          currentY += 0.5;
+        }
+      }
+      
+      pptx.writeFile({ fileName: `Athlos_AI_${new Date().getTime()}.pptx` });
+      toast.success('Mengekspor PPTX...');
+    } catch (e) {
+      console.error(e);
+      toast.error('Gagal membuat PPTX');
+    }
+  };
 
   const clearChat = () => {
     stopGenerating();
@@ -654,7 +727,8 @@ export default function Page() {
           finalPayload += "\n\n[System Note: Pengguna sepertinya sedang sedih. Tolong jawab dengan penuh empati, memotivasi, sangat hangat dan menghibur.]";
         }
 
-        const payloadBody = { message: finalPayload, history: historyPayload, persona, aiEngine, isStream };
+        const payloadBody = { message: finalPayload, history: historyPayload, persona, aiEngine, isStream, factCheck, autoPilot };
+        if (autoPilot) payloadBody.isStream = false; // Disable streaming for pure JSON
         if (currentImage) payloadBody.image = currentImage;
 
         const { data: { session } } = await supabase.auth.getSession();
@@ -751,6 +825,11 @@ export default function Page() {
         }
 
       } catch (err) {
+        if (err.name === 'AbortError' || err.message.includes('aborted')) {
+          console.log('Fetch aborted by user.');
+          return;
+        }
+        
         if (retryCount < MAX_RETRIES && err.message !== "Rate Limit Terlampaui. Coba lagi dalam 1 jam.") {
           retryCount++;
           console.warn(`Fetch failed. Retrying... (${retryCount}/${MAX_RETRIES})`);
@@ -781,6 +860,44 @@ export default function Page() {
       utterance.lang = lang === 'id' ? 'id-ID' : 'en-US';
       window.speechSynthesis.speak(utterance);
     }
+  };
+
+  // Fitur 65: Render Auto-Pilot JSON
+  const renderAutoPilotPlan = (text) => {
+    try {
+      const plan = JSON.parse(text);
+      if (plan.goal && plan.tasks && Array.isArray(plan.tasks)) {
+        return (
+          <div className="bg-[#222] border border-[#444] rounded-xl p-5 my-2 shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
+            <h3 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 mb-4 flex items-center gap-2">
+              <Code size={20} className="text-blue-400" /> Auto-Pilot Plan: {plan.goal}
+            </h3>
+            <div className="space-y-3">
+              {plan.tasks.map((task, idx) => (
+                <div key={idx} className="flex items-start gap-3 bg-[#161616] p-3 rounded-lg border border-[#333] hover:border-blue-500/50 transition-colors">
+                  <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 font-bold text-xs mt-0.5 shadow-inner">
+                    {task.id}
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">{task.agent_role}</div>
+                    <div className="text-sm text-gray-200">{task.task}</div>
+                  </div>
+                  <div className="ml-auto">
+                    <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-[10px] rounded uppercase font-bold tracking-wider">{task.status || 'Pending'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button className="w-full mt-5 py-2.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 font-bold rounded-lg transition-colors border border-blue-500/30 flex justify-center items-center gap-2 text-sm shadow-md hover:shadow-blue-500/20">
+              <Play size={16} /> Eksekusi Rencana (BETA)
+            </button>
+          </div>
+        );
+      }
+    } catch (e) {
+      // Fail silently, fallback to standard markdown
+    }
+    return null;
   };
 
   return (
@@ -1021,17 +1138,7 @@ export default function Page() {
         </button>
       )}
 
-      {previewHtml && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 md:p-10 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-5xl h-full md:h-[80vh] rounded-xl flex flex-col overflow-hidden relative shadow-2xl">
-            <div className="bg-[#212121] text-white p-3 flex justify-between items-center border-b border-gray-700">
-              <span className="font-medium flex items-center gap-2"><Play size={16} className="text-green-400" /> UI Preview (Artifact)</span>
-              <button onClick={() => setPreviewHtml(null)} className="p-1 hover:bg-white/10 rounded transition-colors"><X size={20} /></button>
-            </div>
-            <iframe srcDoc={previewHtml} className="w-full flex-1 bg-white" title="HTML Preview" sandbox="allow-scripts allow-modals allow-forms allow-popups" />
-          </div>
-        </div>
-      )}
+
 
       {isServerDown ? (
         <div className="flex-1 flex flex-col items-center justify-center bg-[#212121] z-20 absolute inset-0 md:static">
@@ -1043,7 +1150,8 @@ export default function Page() {
           <button onClick={() => setIsServerDown(false)} className="mt-8 px-6 py-2 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition-colors">Tutup Peringatan</button>
         </div>
       ) : (
-        <div className="flex-1 h-screen w-full flex flex-col min-w-0 relative">
+        <>
+        <div className={`h-screen flex flex-col min-w-0 relative transition-all duration-300 ease-in-out ${canvasState ? 'hidden md:flex md:flex-1 border-r border-[#333]' : 'w-full flex-1'}`}>
           
           {/* Floating Sidebar Toggle (menggantikan Navbar agar lebih clean) */}
           {!sidebarOpen && (
@@ -1056,7 +1164,7 @@ export default function Page() {
             </button>
           )}
 
-          <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto pb-44 relative scroll-smooth">
+          <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto relative scroll-smooth">
             {chat.length === 0 ? (
               <div className="flex flex-col items-center px-4 pt-12 md:pt-24 pb-32 animate-in fade-in duration-700">
                 <div className="relative mb-8 mt-4">
@@ -1107,7 +1215,11 @@ export default function Page() {
                           </div>
                         ) : (
                           <div className="prose prose-invert prose-p:leading-relaxed max-w-none text-[15px] text-gray-200 overflow-x-auto relative">
-                            <MemoizedMarkdown text={msg.text} setPreviewHtml={setPreviewHtml} />
+                            {msg.role === 'assistant' && renderAutoPilotPlan(msg.text) ? (
+                               renderAutoPilotPlan(msg.text)
+                            ) : (
+                               <MemoizedMarkdown text={msg.text} openCanvas={setCanvasState} />
+                            )}
                             {loading && i === chat.length - 1 && msg.text !== '' && (
                               <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse align-middle rounded-sm"></span>
                             )}
@@ -1120,6 +1232,9 @@ export default function Page() {
                             <div className="mt-3 opacity-0 group-hover:opacity-100 transition-opacity flex justify-start items-center gap-3">
                               <button onClick={() => handleReadAloud(msg.text)} className="text-gray-400 hover:text-white transition-colors"><Volume2 size={16} /></button>
                               <CopyButton text={msg.text} />
+                              <button onClick={() => handleExportPPT(msg.text)} className="text-gray-400 hover:text-white transition-colors flex items-center gap-1" title="Export to PPTX">
+                                <Presentation size={16} /> <span className="text-[10px] uppercase font-bold tracking-wider">PPT</span>
+                              </button>
                               <div className="w-px h-4 bg-gray-700 mx-1"></div>
                               {/* Feature 51 */}
                               <FeedbackButton icon={ThumbsUp} type="up" />
@@ -1131,7 +1246,7 @@ export default function Page() {
                     </div>
                   </div>
                 ))}
-                <div ref={messagesEndRef} className="h-4" />
+                <div ref={messagesEndRef} className="h-44 w-full shrink-0" />
               </div>
             )}
           </div>
@@ -1214,6 +1329,18 @@ export default function Page() {
               <div className="flex justify-between items-center text-xs text-gray-500 mt-2 px-2">
                 <span>{t.disclaimer}</span>
                 <span className="flex items-center gap-2">
+                  <select value={aiEngine} onChange={e => setAiEngine(e.target.value)} className="bg-transparent border border-[#555] rounded px-1 outline-none text-gray-400">
+                    <option value="gemini">Gemini</option>
+                  </select>
+                  <label className="flex items-center gap-1 cursor-pointer hover:text-white transition-colors ml-2">
+                    <input type="checkbox" checked={factCheck} onChange={e => setFactCheck(e.target.checked)} className="accent-[#FFBE98]" />
+                    <span title="Multi-Agent Fact Checker">Verifikasi Fakta</span>
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer hover:text-blue-400 transition-colors ml-2 text-blue-400/80">
+                    <input type="checkbox" checked={autoPilot} onChange={e => setAutoPilot(e.target.checked)} className="accent-blue-500" />
+                    <span title="Autonomous Planner (Mendekomposisi Tugas)">Auto-Pilot 🚀</span>
+                  </label>
+                  <span className="text-gray-600 ml-1">|</span>
                   <span>{input.length} chars</span><span className="text-gray-600">|</span>
                   <span className="font-mono bg-[#2f2f2f] px-1.5 py-0.5 rounded text-[10px]">~{Math.ceil(input.length / 4)} tokens</span>
                 </span>
@@ -1221,6 +1348,58 @@ export default function Page() {
             </div>
           </div>
         </div>
+
+        {/* Artifacts / Canvas Pane */}
+        {canvasState && (
+          <>
+            {/* Desktop Canvas Pane */}
+            <div className="hidden md:flex flex-col flex-1 min-w-0 h-screen bg-[#1a1a1a] transition-all relative z-10">
+              <div className="h-14 min-h-[56px] border-b border-[#333] flex items-center justify-between px-4 text-white bg-[#252525]">
+                 <div className="flex items-center gap-2">
+                    {canvasState.type === 'html' ? <Play size={18} className="text-green-400" /> : <Code size={18} className="text-blue-400" />}
+                    <span className="font-medium text-sm text-gray-200 tracking-wide">{canvasState.type === 'html' ? 'UI Preview' : `Code Artifact (${canvasState.language})`}</span>
+                 </div>
+                 <div className="flex items-center gap-3">
+                   <CopyButton text={canvasState.content} />
+                   <button onClick={() => setCanvasState(null)} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"><X size={20} /></button>
+                 </div>
+              </div>
+              <div className="flex-1 overflow-auto bg-[#1e1e1e]">
+                 {canvasState.type === 'html' ? (
+                   <iframe srcDoc={canvasState.content} className="w-full h-full bg-white border-0" title="HTML Preview" sandbox="allow-scripts allow-modals allow-forms allow-popups" />
+                 ) : (
+                   <SyntaxHighlighter style={vscDarkPlus} language={canvasState.language} PreTag="div" className="!m-0 !bg-transparent !p-6 min-h-full text-[15px] leading-relaxed" showLineNumbers={true}>
+                     {canvasState.content}
+                   </SyntaxHighlighter>
+                 )}
+              </div>
+            </div>
+            
+            {/* Mobile Canvas Modal */}
+            <div className="md:hidden fixed inset-0 z-[60] bg-black/90 flex flex-col animate-in fade-in zoom-in-95 duration-200">
+              <div className="h-14 min-h-[56px] border-b border-gray-700 flex items-center justify-between px-4 text-white bg-[#212121]">
+                 <div className="flex items-center gap-2">
+                    {canvasState.type === 'html' ? <Play size={18} className="text-green-400" /> : <Code size={18} className="text-blue-400" />}
+                    <span className="font-medium text-sm text-gray-200">{canvasState.type === 'html' ? 'UI Preview' : `Code Artifact (${canvasState.language})`}</span>
+                 </div>
+                 <div className="flex items-center gap-3">
+                   <CopyButton text={canvasState.content} />
+                   <button onClick={() => setCanvasState(null)} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white"><X size={24} /></button>
+                 </div>
+              </div>
+              <div className="flex-1 overflow-auto bg-[#1e1e1e]">
+                 {canvasState.type === 'html' ? (
+                   <iframe srcDoc={canvasState.content} className="w-full h-full bg-white border-0" title="HTML Preview" sandbox="allow-scripts allow-modals allow-forms allow-popups" />
+                 ) : (
+                   <SyntaxHighlighter style={vscDarkPlus} language={canvasState.language} PreTag="div" className="!m-0 !bg-transparent !p-4 min-h-full text-[14px]" showLineNumbers={true}>
+                     {canvasState.content}
+                   </SyntaxHighlighter>
+                 )}
+              </div>
+            </div>
+          </>
+        )}
+        </>
       )}
     </div>
   );

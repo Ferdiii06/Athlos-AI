@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Athlos AI Companion",
+  "version": "1.0",
+  "description": "Ekstensi pendamping untuk Athlos AI. Highlight teks dan kirim langsung ke Athlos.",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Pengaturan Athlos AI"
+  }
+}

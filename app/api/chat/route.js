@@ -49,6 +49,8 @@ const chatSchema = z.object({
   persona: z.string().optional(),
   aiEngine: z.enum(["gemini", "groq", "openai", "openrouter"]).optional(),
   isStream: z.boolean().optional(),
+  factCheck: z.boolean().optional(),
+  autoPilot: z.boolean().optional(),
   history: z.array(z.object({
     role: z.enum(["user", "assistant", "model"]),
     text: z.string()
@@ -178,13 +180,23 @@ export async function POST(req) {
 
     chatSchema.parse(body);
 
-    const { message, image, history, persona, aiEngine, isStream = true } = body;
+    const { message, image, history, persona, aiEngine, isStream = true, factCheck = false, autoPilot = false } = body;
     
     // Fitur 24: Logika Multi-Persona
-    let sysInstruct = "Kamu adalah Athlos AI, asisten yang sangat cerdas, bijak, dan sopan. Jawablah setiap pertanyaan user dengan akurat sesuai konteks. Jangan pernah berhalusinasi atau memberikan informasi palsu.";
-    if (persona === 'programmer') sysInstruct = "Kamu adalah Athlos AI versi Senior Programmer. Jawab semua pertanyaan dengan pendekatan teknis, berikan contoh blok kode yang rapi dan efisien, serta gunakan istilah developer.";
-    if (persona === 'guru') sysInstruct = "Kamu adalah Athlos AI versi Guru Sabar. Jelaskan setiap konsep dengan analogi sederhana seperti mengajar anak kecil, gunakan bahasa yang ramah, hangat, dan selalu memotivasi.";
-    if (persona === 'sarkas') sysInstruct = "Kamu adalah Athlos AI versi Sarkas. Jawab dengan akurat, tapi dengan nada yang asik, lucu, sedikit jahil, dan penuh candaan satir ala komedian stand-up tanpa menggunakan kata kasar.";
+    let sysInstruct = "Kamu adalah Athlos AI, asisten edukasi yang sangat cerdas. Jawablah setiap pertanyaan user dengan akurat sesuai konteks.";
+    if (persona === 'santai') sysInstruct = "Kamu adalah teman sekelas/study buddy yang pintar. Jawab dengan gaya santai, ramah, pakai bahasa gaul (lu/gue atau santai), dan selalu suportif seperti teman sedang belajar bareng.";
+    if (persona === 'dosen') sysInstruct = "Kamu adalah Dosen Killer / Penguji Sidang yang sangat tegas, kritis, dan analitis. Jangan beri jawaban langsung, tapi berikan pertanyaan lanjutan atau kritikan tajam agar mahasiswa berpikir keras (Socratic method). Gunakan bahasa formal, tegas, dan menuntut standar akademik tinggi.";
+    if (persona === 'tutor') sysInstruct = "Kamu adalah Tutor Privat yang sangat sabar. Jelaskan setiap materi yang rumit menjadi sangat sederhana menggunakan analogi. Jawab dengan nada hangat, memberikan pujian (encouraging), dan membimbing langkah demi langkah (step by step).";
+
+    // Fitur 32: Workflow Architect (Override)
+    if (message && message.toLowerCase().includes('buatkan workflow json')) {
+      sysInstruct = "Kamu adalah Workflow Architect AI. Output-mu HANYA boleh berupa satu blok kode JSON dengan format React Flow. Struktur JSON wajib memiliki 'nodes' (array) dan 'edges' (array). Node memiliki 'id', 'type' (default, input, output), 'position' ({x, y}), dan 'data' ({label}). Edges memiliki 'id', 'source', 'target'. JANGAN berikan penjelasan teks apa pun selain JSON tersebut.";
+    }
+
+    // Fitur 65: Auto-Pilot Orchestrator
+    if (autoPilot) {
+      sysInstruct = "Kamu adalah Chief AI Orchestrator. Tugasmu BUKAN memberikan jawaban langsung, melainkan MEMECAH TUGAS (Task Decomposition) yang diberikan pengguna menjadi langkah-langkah kecil untuk agen lain. OUTPUT-mu HARUS DAN HANYA BERUPA JSON MURNI TANPA MARKDOWN ATAU PENJELASAN TEKS. Gunakan skema berikut: { \"goal\": \"tujuan utama\", \"tasks\": [ { \"id\": 1, \"agent_role\": \"Researcher/Coder/Writer\", \"task\": \"deskripsi langkah\", \"status\": \"pending\" } ] }";
+    }
 
     // Penanaman Identitas Pembuat & Filosofi Athlos
     sysInstruct += " Jika user bertanya tentang siapa yang menciptakanmu, pembuatmu, atau arti/filosofi nama Athlos AI, jawablah dengan bangga dan detail bahwa kamu diciptakan oleh Ferdi, seorang mahasiswa dari Politeknik Elektronika Negeri Surabaya (PENS) jurusan Teknik Informatika. Jelaskan juga bahwa nama 'Athlos' berasal dari bahasa Yunani yang berarti 'perjuangan atau tugas berat untuk meraih kehormatan'. Filosofi ini mencerminkan prinsip seorang mahasiswa yang berjuang dan berdedikasi penuh untuk mengembangkan suatu produk teknologi AI dengan sangat akurat, canggih, dan bermanfaat. Jika ada yang membicarakan atau bertanya tentang sosial media pemilik/pembuat AI ini (Ferdi), silakan berikan link berikut ini dengan ramah: Instagram: https://www.instagram.com/ferdiii_f , LinkedIn: www.linkedin.com/in/ferryferdiansyah51 , Portofolio: ferdiansyah.web.id , TikTok: https://www.tiktok.com/@knownasferr .";
@@ -208,17 +220,51 @@ export async function POST(req) {
            // ==========================================
        // SMART ROUTING & FALLBACK SYSTEM
        // ==========================================
+       // ==========================================
        let fallbackError = '';
 
+       // Fitur 60: Multi-Agent Fact Checker
+       const appendFactCheckStream = async (controller, encoder, fullText) => {
+          try {
+             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "\n\n---\n\n🔍 **Agent 2: Memverifikasi Fakta...**\n\n" })}\n\n`));
+             const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash", tools: [{ googleSearch: {} }] });
+             const prompt = `Anda adalah Agent 2 (Pemeriksa Fakta). Tugas Anda adalah memverifikasi klaim-klaim utama dari teks berikut menggunakan Google Search. Berikan koreksi singkat jika ada yang salah, atau konfirmasi jika benar. Beri label [FAKTA], [SALAH], atau [BELUM TERBUKTI] pada poin-poin penting. Singkat dan padat.\n\nTeks:\n${fullText}`;
+             const result = await model.generateContentStream(prompt);
+             let sources = [];
+             for await (const chunk of result.stream) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk.text() })}\n\n`));
+                const groundingChunks = chunk?.candidates?.[0]?.groundingMetadata?.groundingChunks;
+                if (groundingChunks && Array.isArray(groundingChunks)) {
+                   groundingChunks.forEach(gChunk => {
+                      if (gChunk?.web?.uri && gChunk?.web?.title) {
+                         if (!sources.some(s => s.uri === gChunk.web.uri)) sources.push(gChunk.web);
+                      }
+                   });
+                }
+             }
+             if (sources.length > 0) {
+                let citationText = "\n\n**Sumber Verifikasi:**\n";
+                sources.forEach((source, index) => {
+                   citationText += `${index + 1}. [${source.title}](${source.uri})\n`;
+                });
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: citationText })}\n\n`));
+             }
+          } catch (e) {
+             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "\n*(Gagal memverifikasi fakta: " + e.message + ")*\n" })}\n\n`));
+          }
+       };
+
        // Helper function untuk parsing stream OpenAI format (Groq & OpenRouter)
-       const buildOpenAIStreamResponse = (response) => {
+       const buildOpenAIStreamResponse = (response, shouldFactCheck = false, routerPrefix = "") => {
           const encoder = new TextEncoder();
           const decoder = new TextDecoder();
           const stream = new ReadableStream({
              async start(controller) {
                 const reader = response.body.getReader();
                 try {
+                   if (routerPrefix) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: routerPrefix })}\n\n`));
                    let buffer = '';
+                   let fullText = '';
                    while (true) {
                       const { done, value } = await reader.read();
                       if (done) break;
@@ -233,6 +279,7 @@ export async function POST(req) {
                                const data = JSON.parse(jsonStr);
                                const content = data.choices?.[0]?.delta?.content;
                                if (content) {
+                                  fullText += content;
                                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: content })}\n\n`));
                                }
                             } catch (e) {
@@ -240,6 +287,9 @@ export async function POST(req) {
                             }
                          }
                       }
+                   }
+                   if (shouldFactCheck && fullText.trim().length > 10) {
+                      await appendFactCheckStream(controller, encoder, fullText);
                    }
                    controller.enqueue(encoder.encode('data: [DONE]\n\n'));
                    controller.close();
@@ -260,12 +310,56 @@ export async function POST(req) {
           });
        };
 
-       // Deteksi niat mencari informasi terbaru (Internet)
-       const needsInternet = message && message.match(/(hari ini|berita|terbaru|sekarang|cuaca|harga|update|2024|2025|2026)/i);
+       // Fitur 70: Athlos Intelligence Router (Semantic Pre-Flight)
+       let intent = "general";
+       let complexity = "low";
+       let routedEngine = "groq"; // default
+       let needsInternet = false;
+       let routerPrefix = "";
+
+       if (!image && !autoPilot && message && process.env.GROQ_API_KEY) {
+           try {
+               const routerResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                   method: 'POST',
+                   headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+                   body: JSON.stringify({ 
+                       model: 'llama3-8b-8192', 
+                       messages: [{ role: 'system', content: `Analyze the user's prompt. Output ONLY valid JSON containing "intent" (search, coding, general, math) and "complexity" (low, high). If they ask about recent events, weather, news, or unknown facts, set intent to "search". If they ask to write complex code, set intent to "coding" and complexity to "high".` }, { role: 'user', content: message }], 
+                       response_format: { type: "json_object" },
+                       temperature: 0.1,
+                       max_tokens: 50
+                   })
+               });
+               if (routerResponse.ok) {
+                   const routerData = await routerResponse.json();
+                   const parsed = JSON.parse(routerData.choices[0].message.content);
+                   intent = parsed.intent || "general";
+                   complexity = parsed.complexity || "low";
+                   
+                   if (intent === "search") {
+                       routedEngine = "gemini";
+                       needsInternet = true;
+                       routerPrefix = `_💡 Router: Dialihkan ke Gemini (Mode Penelusuran)_\n\n`;
+                   } else if (intent === "coding" && complexity === "high") {
+                       routedEngine = "openrouter";
+                       routerPrefix = `_💡 Router: Dialihkan ke Claude/OpenRouter (Mode Kode Rumit)_\n\n`;
+                   } else {
+                       routedEngine = "groq";
+                       routerPrefix = `_💡 Router: Dialihkan ke Groq (Mode Super Cepat)_\n\n`;
+                   }
+               }
+           } catch (e) {
+               needsInternet = message.match(/(hari ini|berita|terbaru|sekarang|cuaca|harga|update|2024|2025|2026)/i);
+               routedEngine = needsInternet ? "gemini" : "groq";
+           }
+       } else if (image) {
+           routedEngine = "gemini";
+       } else if (autoPilot) {
+           routedEngine = "gemini";
+       }
 
        // 1. OPSI PERTAMA: GROQ (Sangat Cepat, LLaMA 3)
-       // Digunakan HANYA jika tidak ada gambar (Groq belum stabil untuk Vision di sini) dan tidak butuh internet
-       if (sysConfig.engines?.groq !== false && process.env.GROQ_API_KEY && !image && !needsInternet) {
+       if (routedEngine === "groq" && sysConfig.engines?.groq !== false && process.env.GROQ_API_KEY) {
           try {
              const messages = [{ role: 'system', content: sysInstruct }];
              for (const h of validHistory) messages.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.text });
@@ -280,9 +374,9 @@ export async function POST(req) {
              if (response.ok) {
                 if (!isStream) {
                    const data = await response.json();
-                   return Response.json({ text: data.choices[0].message.content });
+                   return Response.json({ text: routerPrefix + data.choices[0].message.content });
                 }
-                return buildOpenAIStreamResponse(response);
+                return buildOpenAIStreamResponse(response, factCheck, routerPrefix);
              } else {
                 fallbackError += `Groq Error (${response.status}); `;
              }
@@ -291,22 +385,19 @@ export async function POST(req) {
           }
        }
 
-       // 2. OPSI KEDUA: GEMINI (Support Gambar, Smart, Default Google, Punya Akses Internet)
-       // Jatuh ke sini jika Groq gagal, user mengirim gambar, ATAU butuh akses internet
-       if (sysConfig.engines?.gemini !== false && process.env.GEMINI_API_KEY) {
+       // 2. OPSI KEDUA: GEMINI
+       if ((routedEngine === "gemini" || fallbackError !== '') && sysConfig.engines?.gemini !== false && process.env.GEMINI_API_KEY) {
           try {
              const geminiConfig = { 
-                model: "gemini-2.5-flash", // Update to newer model for better tool support if available, or stick to flash
+                model: "gemini-2.5-flash",
                 systemInstruction: sysInstruct
              };
              
-             // Fitur 25: Mengaktifkan Google Search Grounding jika terdeteksi butuh internet
              if (needsInternet) {
                 geminiConfig.tools = [{ googleSearch: {} }];
              }
 
              const model = genAI.getGenerativeModel(geminiConfig);
-
              const chat = model.startChat({
                 history: validHistory.map(item => ({
                    role: item.role === 'assistant' ? 'model' : 'user',
@@ -325,62 +416,41 @@ export async function POST(req) {
              if (!isStream) {
                 const result = await chat.sendMessage(contentParts);
                 let responseText = result.response.text();
-                
-                // Extract grounding metadata (search results) if present
-                let sources = [];
-                const groundingChunks = result.response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-                if (groundingChunks && Array.isArray(groundingChunks)) {
-                   groundingChunks.forEach(gChunk => {
-                      if (gChunk?.web?.uri && gChunk?.web?.title) {
-                         if (!sources.some(s => s.uri === gChunk.web.uri)) {
-                            sources.push(gChunk.web);
-                         }
-                      }
-                   });
-                }
-                
-                if (sources.length > 0) {
-                   responseText += "\n\n---\n**Sumber Referensi:**\n";
-                   sources.forEach((source, index) => {
-                      responseText += `${index + 1}. [${source.title}](${source.uri})\n`;
-                   });
-                }
-                
-                return Response.json({ text: responseText });
+                return Response.json({ text: routerPrefix + responseText });
              }
 
              const result = await chat.sendMessageStream(contentParts);
-
              const encoder = new TextEncoder();
              const stream = new ReadableStream({
                 async start(controller) {
                    try {
+                      if (routerPrefix) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: routerPrefix })}\n\n`));
                       let sources = [];
+                      let fullText = '';
                       for await (const chunk of result.stream) {
                          const chunkText = chunk.text();
-                         
-                         // Extract grounding metadata (search results) if present
+                         fullText += chunkText;
                          const groundingChunks = chunk?.candidates?.[0]?.groundingMetadata?.groundingChunks;
                          if (groundingChunks && Array.isArray(groundingChunks)) {
                             groundingChunks.forEach(gChunk => {
                                if (gChunk?.web?.uri && gChunk?.web?.title) {
-                                  if (!sources.some(s => s.uri === gChunk.web.uri)) {
-                                     sources.push(gChunk.web);
-                                  }
+                                  if (!sources.some(s => s.uri === gChunk.web.uri)) sources.push(gChunk.web);
                                }
                             });
                          }
-
                          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunkText })}\n\n`));
                       }
                       
-                      // Append citations if any sources were found
                       if (sources.length > 0) {
                          let citationText = "\n\n---\n**Sumber Referensi:**\n";
                          sources.forEach((source, index) => {
                             citationText += `${index + 1}. [${source.title}](${source.uri})\n`;
                          });
                          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: citationText })}\n\n`));
+                      }
+
+                      if (factCheck && fullText.trim().length > 10) {
+                         await appendFactCheckStream(controller, encoder, fullText);
                       }
 
                       controller.enqueue(encoder.encode('data: [DONE]\n\n'));
@@ -405,8 +475,8 @@ export async function POST(req) {
           }
        }
 
-       // 3. OPSI KETIGA: OPENROUTER (Fallback Terakhir jika Gemini error)
-       if (sysConfig.engines?.openrouter !== false && process.env.OPENROUTER_API_KEY) {
+       // 3. OPSI KETIGA: OPENROUTER (Fallback Terakhir atau jika Router memilihnya)
+       if ((routedEngine === "openrouter" || fallbackError !== '') && sysConfig.engines?.openrouter !== false && process.env.OPENROUTER_API_KEY) {
           try {
              const messages = [{ role: 'system', content: sysInstruct }];
              for (const h of validHistory) messages.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.text });
@@ -430,11 +500,11 @@ export async function POST(req) {
              });
              
              if (response.ok) {
-                if (!isStream) {
-                   const data = await response.json();
-                   return Response.json({ text: data.choices[0].message.content });
-                }
-                return buildOpenAIStreamResponse(response);
+                 if (!isStream) {
+                    const data = await response.json();
+                    return Response.json({ text: routerPrefix + data.choices[0].message.content });
+                 }
+                 return buildOpenAIStreamResponse(response, factCheck, routerPrefix);
              } else {
                 fallbackError += `OpenRouter Error (${response.status}); `;
              }
