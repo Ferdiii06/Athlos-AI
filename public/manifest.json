@@ -9,12 +9,12 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/Athlos AI.png",
+      "src": "/Athlos%20AI.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/Athlos AI.png",
+      "src": "/Athlos%20AI.png",
       "sizes": "512x512",
       "type": "image/png"
     }
