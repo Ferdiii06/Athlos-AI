@@ -1383,31 +1383,34 @@ export default function Page() {
                   </div>
                 )}
 
-                <div className="flex items-end w-full">
-                  <div className="flex items-center gap-1 mb-1.5 ml-2 self-end">
-                    <button onClick={() => setShowTemplates(!showTemplates)} className={`p-2 rounded-lg transition-colors ${showTemplates ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><Sparkles size={18} /></button>
-                    <button onClick={() => fileInputRef.current?.click()} className={`p-2 rounded-lg transition-colors ${selectedImage ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><ImageIcon size={18} /></button>
+                <div className="flex items-end w-full min-h-[56px] py-1.5">
+                  <div className="flex items-center gap-0.5 md:gap-1 pl-2 mb-1.5">
+                    <button onClick={() => setShowTemplates(!showTemplates)} className={`p-2 rounded-full transition-colors ${showTemplates ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><Sparkles size={20} strokeWidth={1.5} /></button>
+                    <button onClick={() => fileInputRef.current?.click()} className={`p-2 rounded-full transition-colors ${selectedImage ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><ImageIcon size={20} strokeWidth={1.5} /></button>
                     <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" className="hidden" />
                   </div>
 
                   <textarea
                     ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
-                    placeholder={isUserBanned ? "Akun Anda Diblokir Admin" : (!user && guestChatCount >= 5 ? "Batas gratis habis. Silakan Login." : t.inputPlaceholder)}
-                    className="flex-1 bg-transparent py-3 md:py-3.5 px-2 md:px-4 outline-none text-white text-sm md:text-base placeholder-gray-500 resize-none min-h-[52px] overflow-hidden block leading-relaxed"
+                    placeholder={isUserBanned ? "Akun Diblokir" : (!user && guestChatCount >= 5 ? "Batas gratis habis. Login." : "Pesan Athlos AI...")}
+                    className="flex-1 bg-transparent py-2.5 px-3 md:px-4 outline-none text-white text-[14px] md:text-[15px] placeholder-gray-500 resize-none max-h-[120px] overflow-y-auto block leading-relaxed self-center"
                     rows={1}
                     disabled={isUserBanned || (!user && guestChatCount >= 5) || loading}
+                    style={{ minHeight: '44px' }}
                   />
 
-                  {loading ? (
-                    <button onClick={stopGenerating} className="mb-1.5 mr-2 p-2 rounded-2xl bg-white/10 hover:bg-white/20 text-white transition-colors self-end" title="Stop generating">
-                      <Square size={18} fill="currentColor" />
-                    </button>
-                  ) : (
-                    <button onClick={() => sendChat()} disabled={(!input.trim() && !selectedImage) || (!user && guestChatCount >= 5) || isUserBanned} className="mb-1.5 mr-2 p-2.5 rounded-2xl bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] disabled:from-white/5 disabled:to-white/5 disabled:text-gray-500 transition-all self-end hover:shadow-[0_0_15px_rgba(255,190,152,0.4)] hover:scale-105 active:scale-95 disabled:scale-100 disabled:shadow-none shadow-md">
-                      <Send size={18} />
-                    </button>
-                  )}
+                  <div className="pr-2 mb-1.5 flex items-center">
+                    {loading ? (
+                      <button onClick={stopGenerating} className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors" title="Stop generating">
+                        <Square size={18} fill="currentColor" strokeWidth={0} />
+                      </button>
+                    ) : (
+                      <button onClick={() => sendChat()} disabled={(!input.trim() && !selectedImage) || (!user && guestChatCount >= 5) || isUserBanned} className="p-2.5 rounded-full bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] disabled:from-white/5 disabled:to-white/5 disabled:text-gray-500 transition-all hover:shadow-[0_0_15px_rgba(255,190,152,0.4)] hover:scale-105 active:scale-95 disabled:scale-100 disabled:shadow-none">
+                        <Send size={18} strokeWidth={2} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
