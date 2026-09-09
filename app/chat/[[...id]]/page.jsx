@@ -128,7 +128,7 @@ const T = {
     loginPrompt: 'Silakan login untuk melanjutkan obrolan tanpa batas!',
     loginBtn: 'Login Sekarang',
     regBtn: 'Daftar Akun',
-    inputPlaceholder: 'Pesan Athlos AI (Tekan \'/\' untuk fokus)...',
+    inputPlaceholder: 'Tulis Pesan Anda Disini...',
     disclaimer: 'Athlos AI bisa saja salah. Harap verifikasi informasi penting.',
     upgrade: 'Upgrade ke Pro'
   },
@@ -139,7 +139,7 @@ const T = {
     loginPrompt: 'Please login to continue chatting limitlessly!',
     loginBtn: 'Login Now',
     regBtn: 'Register Account',
-    inputPlaceholder: 'Message Athlos AI (Press \'/\' to focus)...',
+    inputPlaceholder: 'Write Your Message Here...',
     disclaimer: 'Athlos AI can make mistakes. Consider verifying important info.',
     upgrade: 'Upgrade to Pro'
   }
