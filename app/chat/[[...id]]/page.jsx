@@ -1246,7 +1246,7 @@ export default function Page() {
 
           <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto relative scroll-smooth">
             {chat.length === 0 ? (
-              <div className="flex flex-col items-center px-4 pt-12 md:pt-24 pb-32 animate-in fade-in duration-700">
+              <div className="flex flex-col items-center px-4 pt-24 md:pt-24 pb-32 animate-in fade-in duration-700">
                 <div className="relative mb-8 mt-4">
                   <div className="absolute inset-0 bg-[#FFBE98] blur-[60px] opacity-20 rounded-full animate-pulse"></div>
                   <div className="w-20 h-20 bg-gradient-to-tr from-[#FFBE98]/20 to-[#F9A48C]/10 rounded-3xl flex items-center justify-center shadow-[0_0_30px_rgba(255,190,152,0.15)] relative border border-[#FFBE98]/30 backdrop-blur-md transform transition hover:scale-105 hover:rotate-6">
@@ -1261,7 +1261,7 @@ export default function Page() {
                 </p>
               </div>
             ) : (
-              <div className="py-6">
+              <div className="pt-20 md:pt-6 pb-6">
                 {chat.map((msg, i) => (
                   <div key={i} className={`py-8 px-4 group animate-in fade-in slide-in-from-bottom-2 duration-500 ${msg.role === 'user' ? 'bg-transparent' : 'bg-[#FFBE98]/[0.02] backdrop-blur-md border-y border-[#FFBE98]/10 shadow-[0_10px_40px_rgba(0,0,0,0.1)]'}`}>
                     <div className="max-w-4xl mx-auto flex gap-4 md:gap-6 relative">
@@ -1406,23 +1406,24 @@ export default function Page() {
                 </div>
               </div>
 
-              <div className="flex justify-between items-center text-xs text-gray-500 mt-2 px-2">
-                <span>{t.disclaimer}</span>
-                <span className="flex items-center gap-2">
-                  <select value={aiEngine} onChange={e => setAiEngine(e.target.value)} className="bg-transparent border border-[#555] rounded px-1 outline-none text-gray-400">
+              <div className="flex flex-col md:flex-row justify-between items-center text-[10px] md:text-xs text-gray-500 mt-2 px-2 gap-2 text-center md:text-left">
+                <span className="hidden md:inline">{t.disclaimer}</span>
+                <span className="md:hidden opacity-80">{t.disclaimer.split('.')[0]}.</span>
+                <span className="flex flex-wrap justify-center items-center gap-1.5 md:gap-2">
+                  <select value={aiEngine} onChange={e => setAiEngine(e.target.value)} className="bg-transparent border border-[#555] rounded px-1 outline-none text-gray-400 py-0.5">
                     <option value="gemini">Gemini</option>
                   </select>
-                  <label className="flex items-center gap-1 cursor-pointer hover:text-white transition-colors ml-2">
+                  <label className="flex items-center gap-1 cursor-pointer hover:text-white transition-colors">
                     <input type="checkbox" checked={factCheck} onChange={e => setFactCheck(e.target.checked)} className="accent-[#FFBE98]" />
-                    <span title="Multi-Agent Fact Checker">Verifikasi Fakta</span>
+                    <span title="Multi-Agent Fact Checker">Fakta</span>
                   </label>
-                  <label className="flex items-center gap-1 cursor-pointer hover:text-blue-400 transition-colors ml-2 text-blue-400/80">
+                  <label className="flex items-center gap-1 cursor-pointer hover:text-blue-400 transition-colors text-blue-400/80">
                     <input type="checkbox" checked={autoPilot} onChange={e => setAutoPilot(e.target.checked)} className="accent-blue-500" />
                     <span title="Autonomous Planner (Mendekomposisi Tugas)">Auto-Pilot 🚀</span>
                   </label>
-                  <span className="text-gray-600 ml-1">|</span>
-                  <span>{input.length} chars</span><span className="text-gray-600">|</span>
-                  <span className="font-mono bg-[#2f2f2f] px-1.5 py-0.5 rounded text-[10px]">~{Math.ceil(input.length / 4)} tokens</span>
+                  <span className="text-gray-600 hidden sm:inline">|</span>
+                  <span className="hidden sm:inline">{input.length} chars</span><span className="text-gray-600 hidden sm:inline">|</span>
+                  <span className="font-mono bg-[#2f2f2f] px-1.5 py-0.5 rounded text-[10px] hidden sm:inline">~{Math.ceil(input.length / 4)} tokens</span>
                 </span>
               </div>
             </div>
