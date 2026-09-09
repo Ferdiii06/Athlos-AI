@@ -1231,7 +1231,7 @@ export default function Page() {
         </div>
       ) : (
         <>
-        <div className={`h-screen flex flex-col min-w-0 relative transition-all duration-300 ease-in-out ${canvasState ? 'hidden md:flex md:flex-1 border-r border-[#333]' : 'w-full flex-1'}`}>
+        <div className={`h-[100dvh] w-full flex flex-col min-w-0 relative transition-all duration-300 ease-in-out overflow-x-hidden ${canvasState ? 'hidden md:flex md:flex-1 border-r border-[#333]' : 'flex-1'}`}>
           
           {/* Mobile Top Header (Mencegah chat menabrak tombol sidebar) */}
           <div className="md:hidden fixed top-0 left-0 right-0 h-14 bg-[#161312]/90 backdrop-blur-lg z-40 border-b border-white/5 flex items-center justify-center">
@@ -1331,19 +1331,19 @@ export default function Page() {
                     </div>
                   </div>
                 ))}
-                <div ref={messagesEndRef} className="h-44 w-full shrink-0" />
+                <div ref={messagesEndRef} className="h-10 w-full shrink-0" />
               </div>
             )}
           </div>
 
           {showScrollButton && (
-            <button onClick={scrollToBottom} className="absolute bottom-36 left-1/2 transform -translate-x-1/2 p-2 bg-[#333] hover:bg-[#555] text-white rounded-full border border-[#555] shadow-xl transition-all z-20">
+            <button onClick={scrollToBottom} className="absolute bottom-28 left-1/2 transform -translate-x-1/2 p-2 bg-[#333] hover:bg-[#555] text-white rounded-full border border-[#555] shadow-xl transition-all z-20">
               <ArrowDown size={18} />
             </button>
           )}
 
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#161312] via-[#161312]/95 to-transparent pt-10 pb-3 md:pb-4 px-4 md:px-0 z-10 pointer-events-none">
-            <div className="max-w-3xl mx-auto relative group pointer-events-auto">
+          <div className="w-full bg-[#161312] pt-3 pb-3 md:pt-4 md:pb-6 px-3 md:px-0 z-20 shrink-0 border-t border-white/5">
+            <div className="max-w-3xl mx-auto relative group">
 
               {showTemplates && (
                 <div className="absolute bottom-full mb-2 left-0 w-64 bg-[#2f2f2f] border border-[#444] rounded-lg shadow-xl overflow-hidden z-20 animate-in fade-in slide-in-from-bottom-2">

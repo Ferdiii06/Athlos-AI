@@ -19,6 +19,9 @@ body {
   color: var(--text-primary);
   margin: 0;
   transition: background-color 0.3s ease;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 .chat-container {
