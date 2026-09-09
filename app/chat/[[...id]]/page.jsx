@@ -59,6 +59,7 @@ import 'katex/dist/katex.min.css';
 import { createClient } from '@supabase/supabase-js';
 import CryptoJS from 'crypto-js';
 import { Toaster, toast } from 'react-hot-toast';
+import mermaid from 'mermaid';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -144,6 +145,71 @@ const T = {
   }
 };
 
+// Feature 57: Mermaid Flowchart Renderer
+const MermaidChart = React.memo(({ chart }) => {
+  const [svg, setSvg] = useState('');
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    mermaid.initialize({ startOnLoad: false, theme: 'dark', fontFamily: 'Inter, sans-serif' });
+    let isMounted = true;
+    const renderChart = async () => {
+      try {
+        const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+        const { svg } = await mermaid.render(id, chart);
+        if (isMounted) {
+          setSvg(svg);
+          setError(false);
+        }
+      } catch (err) {
+        console.error("Mermaid parsing error:", err);
+        if (isMounted) setError(true);
+      }
+    };
+    if (chart) renderChart();
+    return () => { isMounted = false; };
+  }, [chart]);
+
+  if (error) {
+    return (
+      <div className="p-4 bg-red-900/30 border border-red-500/50 rounded-lg text-red-400 text-sm overflow-x-auto my-4 shadow-md">
+        <p className="font-bold mb-2 flex items-center gap-2"><XCircle size={16} /> Error rendering flowchart</p>
+        <pre className="text-xs font-mono">{chart}</pre>
+      </div>
+    );
+  }
+
+  const handleDownload = () => {
+    if (!svg) return;
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `athlos-flowchart-${new Date().getTime()}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Gambar flowchart berhasil diunduh!', { style: { background: '#333', color: '#fff' } });
+  };
+
+  return (
+    <div className="relative my-6 p-6 bg-[#1a1a1a] rounded-xl border border-white/10 flex justify-center overflow-x-auto shadow-inner ring-1 ring-white/5 group/chart">
+      {svg && (
+        <button 
+          onClick={handleDownload} 
+          className="absolute top-3 right-3 p-1.5 px-3 bg-[#2f2f2f]/80 hover:bg-[#3f3f3f] backdrop-blur-md text-white rounded-lg opacity-0 group-hover/chart:opacity-100 transition-all flex items-center gap-2 text-xs font-bold border border-white/10 shadow-[0_4px_15px_rgba(0,0,0,0.3)] hover:scale-105"
+          title="Download SVG"
+        >
+          <Download size={14} /> Download
+        </button>
+      )}
+      {svg ? <div dangerouslySetInnerHTML={{ __html: svg }} /> : <div className="text-[#FFBE98] text-sm animate-pulse flex items-center gap-2"><Loader2 size={16} /> Menggambar Flowchart...</div>}
+    </div>
+  );
+});
+MermaidChart.displayName = 'MermaidChart';
+
 const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, openCanvas }) {
   return (
     <ReactMarkdown
@@ -154,6 +220,9 @@ const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, openCanvas
           const codeString = String(children).replace(/\n$/, '');
 
           return !inline && match ? (
+            match[1].toLowerCase() === 'mermaid' ? (
+              <MermaidChart chart={codeString} />
+            ) : (
             <div className="my-4 rounded-lg overflow-hidden border border-[#333] shadow-md group/code">
               <div className="flex items-center justify-between px-4 py-2 bg-[#2f2f2f] text-xs font-sans text-gray-400 border-b border-[#333]">
                 <span className="font-medium">{match[1]}</span>
@@ -177,6 +246,7 @@ const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, openCanvas
               </div>
               <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="!m-0 !bg-[#1e1e1e]" {...props}>{codeString}</SyntaxHighlighter>
             </div>
+            )
           ) : (<code className="bg-[#2f2f2f] px-1.5 py-0.5 rounded text-gray-200 font-mono text-sm before:content-[''] after:content-['']" {...props}>{children}</code>)
         }
       }}>{text}</ReactMarkdown>
@@ -192,7 +262,7 @@ export default function Page() {
   const [chat, setChat] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [activeChatId, setActiveChatId] = useState(chatIdFromUrl);
+  const [activeChatId, setActiveChatId] = useState(null);
   const [canvasState, setCanvasState] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);;
 
@@ -785,6 +855,7 @@ export default function Page() {
         const decoder = new TextDecoder();
         let done = false;
         let aiText = '';
+        window.hasRedirectedThisTurn = false;
 
         while (!done) {
           const { value, done: doneReading } = await reader.read();
@@ -803,6 +874,15 @@ export default function Page() {
                     newChat[newChat.length - 1].text = aiText;
                     return newChat;
                   });
+
+                  // Fitur Baru: AI Browser Control (Auto-Redirect)
+                  if (aiText.includes('[REDIRECT:')) {
+                    const redirectMatch = aiText.match(/\[REDIRECT:\s*(https?:\/\/[^\]]+)\]/);
+                    if (redirectMatch && redirectMatch[1] && !window.hasRedirectedThisTurn) {
+                      window.hasRedirectedThisTurn = true;
+                      window.open(redirectMatch[1], '_blank');
+                    }
+                  }
                   if (chatContainerRef.current) {
                     const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
                     const isNearBottom = scrollHeight - scrollTop - clientHeight < 200;
@@ -1157,10 +1237,10 @@ export default function Page() {
           {!sidebarOpen && (
             <button 
               onClick={() => setSidebarOpen(true)} 
-              className="fixed top-4 left-4 z-20 p-2.5 bg-[#2f2f2f]/80 hover:bg-[#3f3f3f] backdrop-blur-md rounded-xl text-gray-300 hover:text-white transition-all shadow-[0_4px_15px_rgba(0,0,0,0.3)] border border-white/10 group flex items-center justify-center"
+              className="fixed top-4 left-4 z-[100] p-2.5 bg-[#2f2f2f]/80 hover:bg-[#3f3f3f] backdrop-blur-md rounded-xl text-gray-300 hover:text-white transition-all shadow-[0_4px_15px_rgba(0,0,0,0.3)] border border-white/10 group flex items-center justify-center pointer-events-auto cursor-pointer"
               title="Buka Sidebar"
             >
-              <Menu size={20} className="group-hover:scale-110 transition-transform" />
+              <Menu size={20} className="group-hover:scale-110 transition-transform pointer-events-none" />
             </button>
           )}
 
