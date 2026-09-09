@@ -1233,11 +1233,16 @@ export default function Page() {
         <>
         <div className={`h-screen flex flex-col min-w-0 relative transition-all duration-300 ease-in-out ${canvasState ? 'hidden md:flex md:flex-1 border-r border-[#333]' : 'w-full flex-1'}`}>
           
-          {/* Floating Sidebar Toggle (menggantikan Navbar agar lebih clean) */}
+          {/* Mobile Top Header (Mencegah chat menabrak tombol sidebar) */}
+          <div className="md:hidden fixed top-0 left-0 right-0 h-14 bg-[#161312]/90 backdrop-blur-lg z-40 border-b border-white/5 flex items-center justify-center">
+            <span className="font-bold text-sm text-transparent bg-clip-text bg-gradient-to-r from-[#FFBE98] to-[#F9A48C]">Athlos AI</span>
+          </div>
+
+          {/* Floating Sidebar Toggle */}
           {!sidebarOpen && (
             <button 
               onClick={() => setSidebarOpen(true)} 
-              className="fixed top-4 left-4 z-[100] p-2.5 bg-[#2f2f2f]/80 hover:bg-[#3f3f3f] backdrop-blur-md rounded-xl text-gray-300 hover:text-white transition-all shadow-[0_4px_15px_rgba(0,0,0,0.3)] border border-white/10 group flex items-center justify-center pointer-events-auto cursor-pointer"
+              className="fixed top-2 md:top-4 left-3 md:left-4 z-[100] p-2 md:p-2.5 bg-[#2f2f2f]/80 hover:bg-[#3f3f3f] backdrop-blur-md rounded-xl text-gray-300 hover:text-white transition-all shadow-lg border border-white/10 group flex items-center justify-center pointer-events-auto cursor-pointer"
               title="Buka Sidebar"
             >
               <Menu size={20} className="group-hover:scale-110 transition-transform pointer-events-none" />
@@ -1389,7 +1394,7 @@ export default function Page() {
                     ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
                     placeholder={isUserBanned ? "Akun Anda Diblokir Admin" : (!user && guestChatCount >= 5 ? "Batas gratis habis. Silakan Login." : t.inputPlaceholder)}
-                    className="flex-1 bg-transparent py-3.5 px-4 outline-none text-white placeholder-gray-500 resize-none min-h-[52px] overflow-hidden block leading-relaxed"
+                    className="flex-1 bg-transparent py-3 md:py-3.5 px-2 md:px-4 outline-none text-white text-sm md:text-base placeholder-gray-500 resize-none min-h-[52px] overflow-hidden block leading-relaxed"
                     rows={1}
                     disabled={isUserBanned || (!user && guestChatCount >= 5) || loading}
                   />
