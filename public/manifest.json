@@ -1,0 +1,22 @@
+{
+  "name": "Athlos AI",
+  "short_name": "Athlos AI",
+  "description": "Asisten Pintar AI buatan Ferdi",
+  "start_url": "/chat",
+  "display": "standalone",
+  "background_color": "#161312",
+  "theme_color": "#161312",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/Athlos AI.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/Athlos AI.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
