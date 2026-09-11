@@ -215,11 +215,81 @@ const MermaidChart = React.memo(({ chart }) => {
 });
 MermaidChart.displayName = 'MermaidChart';
 
-const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, openCanvas }) {
+const sanitizeMarkdownText = (rawText) => {
+  if (!rawText) return '';
+
+  // 1. Tangani format ![alt](https://image.pollinations.ai/prompt/teks spasi?params)
+  let processed = rawText.replace(/!\[(.*?)\]\((https?:\/\/image\.pollinations\.ai\/prompt\/)([\s\S]*?)\)/g, (match, alt, base, rest) => {
+    let promptPart = rest;
+    let queryPart = '';
+    const qIndex = rest.indexOf('?');
+    if (qIndex !== -1) {
+      promptPart = rest.slice(0, qIndex);
+      queryPart = rest.slice(qIndex);
+    } else {
+      queryPart = '?width=1024&height=1024&nologo=true';
+    }
+    // Encode karakter spesial dan spasi
+    const cleanPrompt = encodeURIComponent(decodeURIComponent(promptPart.trim()).replace(/\s+/g, ' '));
+    return `![${alt || 'Generated Image'}](${base}${cleanPrompt}${queryPart})`;
+  });
+
+  return processed;
+};
+
+const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, openCanvas, onEditImage }) {
+  const sanitizedText = React.useMemo(() => sanitizeMarkdownText(text), [text]);
+
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}
       components={{
+        img({ src, alt }) {
+          let extractedPrompt = alt || 'Gambar AI';
+          if ((extractedPrompt === 'Generated Image' || !extractedPrompt) && src && src.includes('/prompt/')) {
+            try {
+              const match = src.match(/\/prompt\/([^?]+)/);
+              if (match && match[1]) {
+                extractedPrompt = decodeURIComponent(match[1]);
+              }
+            } catch {
+              extractedPrompt = 'Gambar AI';
+            }
+          }
+
+          return (
+            <div className="my-4 rounded-2xl overflow-hidden border border-white/15 bg-black/40 shadow-2xl group/img relative inline-block max-w-full">
+              <img
+                src={src}
+                alt={extractedPrompt}
+                className="max-w-full max-h-[520px] object-contain rounded-2xl bg-[#161312] transition-transform duration-300 block"
+                loading="lazy"
+              />
+              
+              {/* Floating Action Controls */}
+              <div className="absolute top-3 right-3 flex items-center gap-1.5 opacity-90 sm:opacity-0 group-hover/img:opacity-100 transition-opacity bg-black/85 backdrop-blur-md p-1.5 rounded-xl border border-white/15 shadow-xl">
+                {onEditImage && (
+                  <button
+                    onClick={() => onEditImage(extractedPrompt, src)}
+                    className="px-2.5 py-1.5 bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] font-bold text-xs rounded-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-1 shadow-[0_0_10px_rgba(255,190,152,0.4)] cursor-pointer"
+                    title="Edit dan Sesuaikan Gambar di Studio Real-time"
+                  >
+                    <Palette size={14} /> <span>Edit di Studio</span>
+                  </button>
+                )}
+                <a
+                  href={src}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-xs flex items-center justify-center cursor-pointer"
+                  title="Buka Gambar Resolusi Penuh"
+                >
+                  <Download size={14} />
+                </a>
+              </div>
+            </div>
+          );
+        },
         code({ inline, className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || '');
           const codeString = String(children).replace(/\n$/, '');
@@ -254,7 +324,7 @@ const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, openCanvas
             )
           ) : (<code className="bg-[#2f2f2f] px-1.5 py-0.5 rounded text-gray-200 font-mono text-sm before:content-[''] after:content-['']" {...props}>{children}</code>)
         }
-      }}>{text}</ReactMarkdown>
+      }}>{sanitizedText}</ReactMarkdown>
   );
 });
 
@@ -341,6 +411,12 @@ export default function Page() {
   const handleOpenStudioFromCamera = (dataUrl) => {
     setStudioReferencePhoto(dataUrl);
     setStudioInitialPrompt('Cyberpunk portrait based on photo, vibrant neon reflections');
+    setShowImageStudio(true);
+  };
+
+  const handleOpenStudioForEdit = (promptText, imageUrl) => {
+    setStudioInitialPrompt(promptText || '');
+    setStudioReferencePhoto(imageUrl || null);
     setShowImageStudio(true);
   };
 
@@ -1362,11 +1438,30 @@ export default function Page() {
                             {msg.role === 'assistant' && renderAutoPilotPlan(msg.text) ? (
                                renderAutoPilotPlan(msg.text)
                             ) : (
-                               <MemoizedMarkdown text={msg.text} openCanvas={setCanvasState} />
+                               <MemoizedMarkdown text={msg.text} openCanvas={setCanvasState} onEditImage={handleOpenStudioForEdit} />
                             )}
                             {loading && i === chat.length - 1 && msg.text !== '' && (
                               <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse align-middle rounded-sm"></span>
                             )}
+                          </div>
+                        )}
+
+                        {msg.role === 'assistant' && msg.text && msg.text.includes('image.pollinations.ai') && (
+                          <div className="mt-2.5 flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                let extractedPrompt = '';
+                                const match = msg.text.match(/\/prompt\/([^?)\s]+)/);
+                                if (match && match[1]) {
+                                  try { extractedPrompt = decodeURIComponent(match[1]); } catch { extractedPrompt = match[1]; }
+                                }
+                                const urlMatch = msg.text.match(/(https?:\/\/image\.pollinations\.ai\/prompt\/[^\s)]+)/);
+                                handleOpenStudioForEdit(extractedPrompt, urlMatch ? urlMatch[1] : null);
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-500/35 text-purple-200 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                            >
+                              <Palette size={14} className="text-[#FFBE98]" /> Kustomisasi Gambar di Studio Real-time
+                            </button>
                           </div>
                         )}
 
