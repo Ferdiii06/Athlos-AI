@@ -51,6 +51,9 @@ const Search = (p) => <BoxIcon name="bx-search" {...p} />;
 const BroadcastIcon = (p) => <BoxIcon name="bx-broadcast" {...p} />;
 const Maximize = (p) => <BoxIcon name="bx-expand" {...p} />;
 const Code = (p) => <BoxIcon name="bx-code-alt" {...p} />;
+const Camera = (p) => <BoxIcon name="bx-camera" {...p} />;
+const Palette = (p) => <BoxIcon name="bx-palette" {...p} />;
+const ShieldAlert = (p) => <BoxIcon name="bx-shield-x" {...p} />;
 
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -60,6 +63,8 @@ import { createClient } from '@supabase/supabase-js';
 import CryptoJS from 'crypto-js';
 import { Toaster, toast } from 'react-hot-toast';
 import mermaid from 'mermaid';
+import CameraCaptureModal from '../../components/CameraCaptureModal';
+import RealtimeImageStudio from '../../components/RealtimeImageStudio';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -322,6 +327,41 @@ export default function Page() {
   const [previewHtml, setPreviewHtml] = useState(null);
   const [selectionPos, setSelectionPos] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+
+  // Fitur Kamera Langsung & Studio Gambar Real-time
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [showImageStudio, setShowImageStudio] = useState(false);
+  const [studioReferencePhoto, setStudioReferencePhoto] = useState(null);
+  const [studioInitialPrompt, setStudioInitialPrompt] = useState('');
+
+  const handleCapturePhoto = (dataUrl) => {
+    setSelectedImage(dataUrl);
+  };
+
+  const handleOpenStudioFromCamera = (dataUrl) => {
+    setStudioReferencePhoto(dataUrl);
+    setStudioInitialPrompt('Cyberpunk portrait based on photo, vibrant neon reflections');
+    setShowImageStudio(true);
+  };
+
+  const handleSendStudioImageToChat = (imageUrl, promptText) => {
+    const userMsg = {
+      role: 'user',
+      text: `Buatkan gambar: "${promptText}"`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    const assistantMsg = {
+      role: 'assistant',
+      text: `Berikut adalah visualisasi gambar real-time yang berhasil digenerate:\n\n![${promptText}](${imageUrl})\n\n> **Prompt:** *${promptText}*\n> **Status:** Gambar siap diunduh atau digunakan.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setChat(prev => [...prev, userMsg, assistantMsg]);
+    setTimeout(() => scrollToBottom(), 100);
+  };
+
+  const handleUseStudioImageAsInput = (imageUrl) => {
+    setSelectedImage(imageUrl);
+  };
 
   const chatContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -1097,6 +1137,25 @@ export default function Page() {
         </div>
       )}
 
+      {/* Modal Kamera Langsung */}
+      <CameraCaptureModal
+        isOpen={showCameraModal}
+        onClose={() => setShowCameraModal(false)}
+        onCapture={handleCapturePhoto}
+        onOpenStudioWithPhoto={handleOpenStudioFromCamera}
+      />
+
+      {/* Studio Gambar Real-time */}
+      <RealtimeImageStudio
+        key={showImageStudio ? `studio-${studioInitialPrompt}-${studioReferencePhoto ? '1' : '0'}` : 'closed'}
+        isOpen={showImageStudio}
+        onClose={() => setShowImageStudio(false)}
+        initialPrompt={studioInitialPrompt}
+        initialReferencePhoto={studioReferencePhoto}
+        onSendToChat={handleSendStudioImageToChat}
+        onUseAsInput={handleUseStudioImageAsInput}
+      />
+
       {showAdmin && (
         <div className="fixed inset-0 bg-[#212121] z-[60] p-6 md:p-12 overflow-y-auto">
           <div className="max-w-4xl mx-auto">
@@ -1385,8 +1444,10 @@ export default function Page() {
 
                 <div className="flex items-end w-full min-h-[56px] py-1.5">
                   <div className="flex items-center gap-0.5 md:gap-1 pl-2 mb-1.5">
-                    <button onClick={() => setShowTemplates(!showTemplates)} className={`p-2 rounded-full transition-colors ${showTemplates ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><Sparkles size={20} strokeWidth={1.5} /></button>
-                    <button onClick={() => fileInputRef.current?.click()} className={`p-2 rounded-full transition-colors ${selectedImage ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><ImageIcon size={20} strokeWidth={1.5} /></button>
+                    <button onClick={() => setShowTemplates(!showTemplates)} className={`p-2 rounded-full transition-colors ${showTemplates ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`} title="Prompt Library"><Sparkles size={20} strokeWidth={1.5} /></button>
+                    <button onClick={() => fileInputRef.current?.click()} className={`p-2 rounded-full transition-colors ${selectedImage ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5'}`} title="Unggah Gambar"><ImageIcon size={20} strokeWidth={1.5} /></button>
+                    <button onClick={() => setShowCameraModal(true)} className="p-2 rounded-full text-gray-400 hover:text-[#FFBE98] hover:bg-[#FFBE98]/10 transition-colors" title="Ambil Foto Kamera"><Camera size={20} strokeWidth={1.5} /></button>
+                    <button onClick={() => { setStudioReferencePhoto(null); setStudioInitialPrompt(''); setShowImageStudio(true); }} className="p-2 rounded-full text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-colors" title="Studio Gambar Real-time"><Palette size={20} strokeWidth={1.5} /></button>
                     <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" className="hidden" />
                   </div>
 

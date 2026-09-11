@@ -227,8 +227,8 @@ export async function POST(req) {
     // Penanaman Identitas Pembuat & Filosofi Athlos
     sysInstruct += " Jika user bertanya tentang siapa yang menciptakanmu, pembuatmu, atau arti/filosofi nama Athlos AI, jawablah dengan bangga dan detail bahwa kamu diciptakan oleh Ferdi, seorang mahasiswa dari Politeknik Elektronika Negeri Surabaya (PENS) jurusan Teknik Informatika. Jelaskan juga bahwa nama 'Athlos' berasal dari bahasa Yunani yang berarti 'perjuangan atau tugas berat untuk meraih kehormatan'. Filosofi ini mencerminkan prinsip seorang mahasiswa yang berjuang dan berdedikasi penuh untuk mengembangkan suatu produk teknologi AI dengan sangat akurat, canggih, dan bermanfaat. Jika ada yang membicarakan atau bertanya tentang sosial media pemilik/pembuat AI ini (Ferdi), silakan berikan link berikut ini dengan ramah: Instagram: https://www.instagram.com/ferdiii_f , LinkedIn: www.linkedin.com/in/ferryferdiansyah51 , Portofolio: ferdiansyah.web.id , TikTok: https://www.tiktok.com/@knownasferr .";
 
-    // Format Instruksi Output Rapi
-    sysInstruct += " Penting: Selalu format jawabanmu agar tersusun sangat rapi dan mudah dibaca secara visual. Gunakan paragraf pendek (maksimal 3-4 kalimat), gunakan poin-poin (bullet points atau numbered lists) jika menjelaskan langkah atau daftar, gunakan huruf tebal (bold) untuk menyoroti kata kunci atau konsep penting, dan berikan jarak spasi/enter yang cukup antar paragraf.";
+    // Format Instruksi Output Rapi & Visual Elegan
+    sysInstruct += " PENTING (Formatting & Visual UX): Selalu format jawabanmu agar tersusun SANGAT RAPI, terstruktur, profesional, dan elegan secara visual. Ikuti aturan mutlak ini:\n1. Gunakan Heading (H2/H3) yang jelas untuk membagi topik. Gunakan emoji SANGAT SEDIKIT saja (hanya sesekali jika sangat perlu) agar tetap terlihat profesional dan tidak kekanak-kanakan.\n2. Jika kamu diminta menyajikan data, perbandingan, atau daftar dengan variabel banyak, WAJIB gunakan Tabel Markdown.\n3. Gunakan poin-poin (bullet points) standar (- atau 1.) tanpa perlu tambahan emoji berlebihan di setiap poinnya.\n4. Buat paragraf yang sangat singkat (maks 3-4 kalimat per paragraf) dengan jarak spasi (baris kosong) yang lega antar bagian.\n5. Gunakan cetak tebal (bold) untuk menyoroti insight penting atau istilah kunci.\n6. Gunakan blok kutipan (> quote) untuk kesimpulan, tips pro, peringatan, atau catatan ekstra.\n7. Tulis layaknya artikel profesional yang bersih, minimalis, dan sangat nyaman dibaca. Jangan pernah memberikan jawaban berupa blok teks (wall of text) panjang.";
 
     // Fitur 53: Record Input Tokens
     const inputTokens = Math.ceil(((message || "").length) / 4);
@@ -339,44 +339,55 @@ export async function POST(req) {
        // Fitur 70: Athlos Intelligence Router (Semantic Pre-Flight)
        let intent = "general";
        let complexity = "low";
-       let routedEngine = "groq"; // default
+       let routedEngine = aiEngine || "groq"; // Prioritaskan pilihan user, default groq
        let needsInternet = false;
        let routerPrefix = "";
 
-       if (!image && !autoPilot && message && process.env.GROQ_API_KEY) {
-           try {
-               const routerResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                   method: 'POST',
-                   headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
-                   body: JSON.stringify({ 
-                       model: 'llama3-8b-8192', 
-                       messages: [{ role: 'system', content: `Analyze the user's prompt. Output ONLY valid JSON containing "intent" (search, coding, general, math) and "complexity" (low, high). If they ask about recent events, weather, news, or unknown facts, set intent to "search". If they ask to write complex code, set intent to "coding" and complexity to "high".` }, { role: 'user', content: message }], 
-                       response_format: { type: "json_object" },
-                       temperature: 0.1,
-                       max_tokens: 50
-                   })
-               });
-               if (routerResponse.ok) {
-                   const routerData = await routerResponse.json();
-                   const parsed = JSON.parse(routerData.choices[0].message.content);
-                   intent = parsed.intent || "general";
-                   complexity = parsed.complexity || "low";
-                   
-                   if (intent === "search") {
-                       routedEngine = "gemini";
-                       needsInternet = true;
-                       routerPrefix = `_💡 Router: Dialihkan ke Gemini (Mode Penelusuran)_\n\n`;
-                   } else if (intent === "coding" && complexity === "high") {
-                       routedEngine = "openrouter";
-                       routerPrefix = `_💡 Router: Dialihkan ke Claude/OpenRouter (Mode Kode Rumit)_\n\n`;
-                   } else {
-                       routedEngine = "groq";
-                       routerPrefix = `_💡 Router: Dialihkan ke Groq (Mode Super Cepat)_\n\n`;
+       const obviousSearchKeywords = /(hari ini|berita|terbaru|sekarang|cuaca|harga|update|2024|2025|2026|siapa|apa itu|dimana|kapan|jadwal)/i;
+
+       if (!image && !autoPilot && message) {
+           // Jika user tidak memilih engine spesifik atau membiarkan default, kita jalankan router pintar
+           if (!aiEngine || aiEngine === "groq" || aiEngine === "gemini") {
+               if (message.match(obviousSearchKeywords)) {
+                   intent = "search";
+                   routedEngine = "gemini";
+                   needsInternet = true;
+                   routerPrefix = !aiEngine ? `_💡 Router: Dialihkan ke Gemini (Mode Penelusuran)_\n\n` : "";
+               } else if (process.env.GROQ_API_KEY && !aiEngine) {
+                   try {
+                       const routerResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                           method: 'POST',
+                           headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+                           body: JSON.stringify({ 
+                               model: 'llama3-8b-8192', 
+                               messages: [{ role: 'system', content: `Analyze the user's prompt. Output ONLY valid JSON containing "intent" (search, coding, general, math) and "complexity" (low, high). If they ask about recent events, weather, news, or unknown facts, set intent to "search". If they ask to write complex code, set intent to "coding" and complexity to "high".` }, { role: 'user', content: message }], 
+                               response_format: { type: "json_object" },
+                               temperature: 0.1,
+                               max_tokens: 50
+                           })
+                       });
+                       if (routerResponse.ok) {
+                           const routerData = await routerResponse.json();
+                           const parsed = JSON.parse(routerData.choices[0].message.content);
+                           intent = parsed.intent || "general";
+                           complexity = parsed.complexity || "low";
+                           
+                           if (intent === "search") {
+                               routedEngine = "gemini";
+                               needsInternet = true;
+                               routerPrefix = `_💡 Router: Dialihkan ke Gemini (Mode Penelusuran)_\n\n`;
+                           } else if (intent === "coding" && complexity === "high") {
+                               routedEngine = "openrouter";
+                               routerPrefix = `_💡 Router: Dialihkan ke Claude/OpenRouter (Mode Kode Rumit)_\n\n`;
+                           } else {
+                               routedEngine = "groq";
+                               routerPrefix = `_💡 Router: Dialihkan ke Groq (Mode Super Cepat)_\n\n`;
+                           }
+                       }
+                   } catch (e) {
+                       // Silently fallback if groq router fails
                    }
                }
-           } catch (e) {
-               needsInternet = message.match(/(hari ini|berita|terbaru|sekarang|cuaca|harga|update|2024|2025|2026)/i);
-               routedEngine = needsInternet ? "gemini" : "groq";
            }
        } else if (image) {
            routedEngine = "gemini";
