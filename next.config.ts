@@ -28,7 +28,15 @@ const nextConfig: NextConfig = {
           }
         ],
       },
-    ]
+    ];
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/sitemaps.xml',
+        destination: '/sitemap.xml',
+      },
+    ];
   },
 };
 
