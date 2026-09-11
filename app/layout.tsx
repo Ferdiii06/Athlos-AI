@@ -46,6 +46,9 @@ export const metadata: Metadata = {
       "max-snippet": -1,
     },
   },
+  verification: {
+    google: "googlee95d2f60160e679a",
+  },
   openGraph: {
     title: "Athlos AI - Asisten AI Cerdas Gratis Tanpa Limit",
     description:
