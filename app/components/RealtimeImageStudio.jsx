@@ -41,7 +41,7 @@ export default function RealtimeImageStudio({
   const [debouncedPrompt, setDebouncedPrompt] = useState(prompt);
   const [selectedStyle, setSelectedStyle] = useState('photo');
   const [aspectRatio, setAspectRatio] = useState('1:1');
-  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1000000));
+  const [seed, setSeed] = useState(777777);
   const [currentImageUrl, setCurrentImageUrl] = useState('');
   const [history, setHistory] = useState([]);
   const [referencePhoto, setReferencePhoto] = useState(initialReferencePhoto);
@@ -66,10 +66,10 @@ export default function RealtimeImageStudio({
     const styleObj = STYLES.find(s => s.id === styleId) || STYLES[0];
     const ratioObj = ASPECT_RATIOS.find(r => r.id === ratioId) || ASPECT_RATIOS[0];
 
-    const fullPrompt = `${pText.trim()}${styleObj.suffix}`;
+    const fullPrompt = `${pText.trim()}${styleObj.suffix}, clean, no watermark, no text, no logo`;
     const encodedPrompt = encodeURIComponent(fullPrompt);
 
-    return `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${ratioObj.width}&height=${ratioObj.height}&seed=${currentSeed}&model=turbo&nologo=true`;
+    return `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${ratioObj.width}&height=${ratioObj.height}&seed=${currentSeed}&model=flux&nologo=true&nofeed=true`;
   }, []);
 
   const targetUrl = generateUrl(debouncedPrompt, selectedStyle, aspectRatio, seed);

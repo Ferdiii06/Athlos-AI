@@ -47,6 +47,8 @@ const chatSchema = z.object({
   message: z.string().max(5000).optional(),
   image: z.string().optional(),
   persona: z.string().optional(),
+  audience: z.enum(["auto", "kids", "teens", "pro", "academic"]).optional(),
+  deepThink: z.boolean().optional(),
   aiEngine: z.enum(["gemini", "groq", "openai", "openrouter"]).optional(),
   isStream: z.boolean().optional(),
   factCheck: z.boolean().optional(),
@@ -180,13 +182,31 @@ export async function POST(req) {
 
     chatSchema.parse(body);
 
-    const { message, image, history, persona, aiEngine, isStream = true, factCheck = false, autoPilot = false } = body;
+    const { message, image, history, persona, audience = "auto", deepThink = false, aiEngine, isStream = true, factCheck = false, autoPilot = false } = body;
     
-    // Fitur 24: Logika Multi-Persona
-    let sysInstruct = "Kamu adalah Athlos AI, asisten edukasi yang sangat cerdas. Jawablah setiap pertanyaan user dengan akurat sesuai konteks.";
+    // Fitur 24: Logika Multi-Persona & Adaptasi Audiens Multigenerasi
+    let sysInstruct = "Kamu adalah Athlos AI, asisten kecerdasan buatan super cerdas, faktual, dan adaptif. Jawablah setiap pertanyaan user dengan akurat sesuai konteks dan kebutuhan pengguna.";
     if (persona === 'santai') sysInstruct = "Kamu adalah teman sekelas/study buddy yang pintar. Jawab dengan gaya santai, ramah, pakai bahasa gaul (lu/gue atau santai), dan selalu suportif seperti teman sedang belajar bareng.";
     if (persona === 'dosen') sysInstruct = "Kamu adalah Dosen Killer / Penguji Sidang yang sangat tegas, kritis, dan analitis. Jangan beri jawaban langsung, tapi berikan pertanyaan lanjutan atau kritikan tajam agar mahasiswa berpikir keras (Socratic method). Gunakan bahasa formal, tegas, dan menuntut standar akademik tinggi.";
     if (persona === 'tutor') sysInstruct = "Kamu adalah Tutor Privat yang sangat sabar. Jelaskan setiap materi yang rumit menjadi sangat sederhana menggunakan analogi. Jawab dengan nada hangat, memberikan pujian (encouraging), dan membimbing langkah demi langkah (step by step).";
+
+    // Adaptasi Audiens Multigenerasi (Kids, Teens, Pro, Academic, Auto)
+    if (audience === 'kids') {
+      sysInstruct += "\n\n[MODE AUDIENS: ANAK-ANAK / KIDS]\n- Bertindaklah seperti sahabat atau kakak yang sangat ceria, ramah, antusias, dan penuh kasih sayang.\n- Gunakan bahasa Indonesia sederhana yang mudah dipahami, hindari jargon sulit tanpa perumpamaan yang menyenangkan (seperti analogi mainan, kartun, kue, petualangan seru, atau hewan lucu).\n- Gunakan kalimat pendek, interaktif, beri pujian dan dorongan semangat positif.";
+    } else if (audience === 'teens') {
+      sysInstruct += "\n\n[MODE AUDIENS: REMAJA & PELAJAR / TEENS & STUDENTS]\n- Bertindaklah sebagai study buddy yang seru, suportif, relevan, dan modern.\n- Jelaskan konsep secara bertahap (step-by-step) untuk mempermudah pemahaman PR, tugas sekolah, ujian, atau perkuliahan.\n- Sertakan contoh nyata dalam kehidupan sehari-hari anak muda, rangkuman rumus cepat (cheat sheet), dan tips belajar efektif.";
+    } else if (audience === 'pro') {
+      sysInstruct += "\n\n[MODE AUDIENS: PROFESIONAL & EKSEKUTIF / PROFESSIONAL]\n- Komunikasi tingkat eksekutif: sangat to-the-point, berorientasi hasil, efisien, dan kaya konteks industri/bisnis.\n- Sajikan jawaban dengan struktur jelas: ringkasan eksekutif (Executive Summary), metrik/KPI kunci, tabel perbandingan komparatif, dan rencana tindakan konkret (Actionable Recommendations) tanpa bertele-tele.";
+    } else if (audience === 'academic') {
+      sysInstruct += "\n\n[MODE AUDIENS: AKADEMISI & PENELITI / ACADEMIC]\n- Gunakan standar keilmuan ketat, penalaran logis deduktif/induktif, dan terminologi ilmiah yang presisi.\n- Cantumkan kerangka metodologis, tinjauan teoretis, analisis pro-kontra multi-perspektif, serta batasan kajian (limitations).\n- Format terstruktur layaknya abstrak atau ulasan literatur ilmiah dengan tingkat kepastian epistemik tinggi.";
+    } else {
+      sysInstruct += "\n\n[ADAPTASI AUDIENS OTOMATIS]: Analisis nada dan kompleksitas prompt pengguna secara cerdas. Jika pertanyaan santai/ringan dari anak/remaja, responlah secara ramah dan mudah dipahami. Jika pertanyaan teknis atau bisnis, berikan jawaban terstruktur dengan standar industri tinggi.";
+    }
+
+    // Fitur Deep Reasoning / Thinking Mode (DeepSeek R1 style)
+    if (deepThink) {
+      sysInstruct += "\n\n[MODE DEEP REASONING (THINKING MODE AKTIF)]:\nSebelum Anda memberikan jawaban akhir, Anda WAJIB memikirkan dan menganalisis masalah secara kritis, multi-sudut, dan mendalam di dalam tag <think>...</think>.\nDi dalam tag <think>:\n1. Uraikan pemahaman masalah dan identifikasi kendala/asumsi.\n2. Lakukan eksplorasi 2-3 pendekatan atau hipotesis alternatif.\n3. Lakukan verifikasi logika, self-correction, dan cek ketepatan data faktual.\nSetelah tag penutup </think>, sajikan HANYA jawaban final yang sangat rapi, terstruktur, dan elegan untuk pengguna.";
+    }
 
     // Fitur 32: Workflow Architect (Override)
     if (message && message.toLowerCase().includes('buatkan workflow json')) {
@@ -204,7 +224,20 @@ export async function POST(req) {
     // Fitur Baru: Writing & Communication Auto-Detection
     sysInstruct += " Jika user meminta bantuan menulis CV, resume, atau surat lamaran kerja (Resume Writing), bertindaklah sebagai Professional Career Coach yang menyoroti pencapaian dan kata kunci industri. Jika user meminta cerita, puisi, atau ide kreatif (Creative Writing), bertindaklah sebagai Creative Writer yang imajinatif dan menggunakan gaya bahasa naratif yang memikat. Jika user meminta untuk mengubah nada tulisan (Tone Adaption), sesuaikan gaya bahasa (misal: lebih santai, lebih formal, atau lebih persuasif) dengan sempurna sesuai konteks yang diminta. Jika user meminta pembuatan materi presentasi atau pitch deck (Presentation Writing), bertindaklah sebagai Ahli Komunikasi Eksekutif yang membuat struktur slide (Slide 1, Slide 2, dst) yang persuasif, ringkas, visual-ready, dan memiliki alur cerita yang kuat (storytelling).";
     // Fitur Baru: Multimodal & Creative AI Auto-Detection
-    sysInstruct += " Jika user mengirimkan gambar, bertindaklah sebagai Computer Vision Expert yang teliti menganalisis setiap piksel, membaca teks (OCR), dan mengenali objek secara detail (Image Understanding). Jika user menanyakan tentang video, bertindaklah sebagai Video & Media Analyst yang merangkum adegan atau mentranskrip percakapan (Video Understanding). Jika user meminta kamu 'membuat', 'menggambar', atau 'generate' gambar (Image Generation), kamu BISA dan MAMPU menghasilkan gambar! Kamu WAJIB membalas menggunakan format Markdown gambar: ![Generated Image](https://image.pollinations.ai/prompt/[PROMPT]?width=1024&height=1024&nologo=true) . Ganti [PROMPT] dengan deskripsi gambar dalam bahasa Inggris yang sangat spesifik, sinematik, dan WAJIB mengganti semua spasi dengan %20 (contoh: cute%20cat%20wearing%20glasses).";
+    sysInstruct += " Jika user mengirimkan gambar, bertindaklah sebagai Computer Vision Expert yang teliti menganalisis setiap piksel, membaca teks (OCR), dan mengenali objek secara detail (Image Understanding). Jika user menanyakan tentang video, bertindaklah sebagai Video & Media Analyst yang merangkum adegan atau mentranskrip percakapan (Video Understanding).";
+    sysInstruct += " Jika user meminta membuat, menggambar, melukis, atau men-generate gambar (Image Generation):" +
+      "\n1. DILARANG KERAS memberikan kode pemrograman, script HTML, CSS, atau JavaScript ketika user meminta gambar atau ilustrasi visual! User ingin melihat GAMBAR, BUKAN KODE." +
+      "\n2. FORMAT WAJIB (GAMBAR ARTISTIK): ![Judul Singkat Gambar](https://image.pollinations.ai/prompt/[PROMPT]?model=flux&width=1024&height=1024&nologo=true&nofeed=true)" +
+      "\n3. KESESUAIAN INTENSI USER (PRINSIP 'PLAN A = PLAN A'): Terjemahkan dan kembangkan HANYA tema atau objek yang secara spesifik diminta oleh pengguna ke dalam bahasa Inggris deskriptif secara akurat 100% (contoh: jika user meminta tema Paris, buat deskripsi Menara Eiffel, jalanan kota Paris yang elegan, kafe klasik trotoar, dan suasana senja keemasan). DILARANG menambahkan objek acak yang tidak diminta. [PROMPT] berdurasi 15-25 kata, fotorealistik, sinematik, akhiri dengan ', 8k resolution, clean, photorealistic, cinematic lighting', dan WAJIB ganti semua spasi dengan %20." +
+      "\n4. DILARANG menggunakan karakter pipe (|), tanda kurung kurawal, tanda kutip, atau parameter aneh dalam URL ataupun kurung siku judul." +
+      "\n5. PENGECUALIAN HANYA UNTUK PETA GEOGRAFIS (Bukan Gambar Artistik): Jika dan HANYA JIKA user meminta Peta Indonesia atau Peta Dunia resmi, gunakan tautan resmi Wikimedia: ![Peta Resmi Indonesia](https://upload.wikimedia.org/wikipedia/commons/thumb/b/ba/Provinces_of_Indonesia.svg/1920px-Provinces_of_Indonesia.svg.png) atau ![Peta Dunia](https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/World_map_-_low_resolution.svg/1920px-World_map_-_low_resolution.svg.png)." +
+      "\n6. Respon teks: Berikan 1 kalimat pengantar yang ramah dan relevan, tampilkan visual gambar yang jernih, lalu jelaskan keindahan visualnya dalam 2-3 poin ringkas menggunakan bahasa Indonesia yang fasih, sopan, dan rapi.";
+
+    // Protokol Mutlak Anti-Halusinasi & Kebenaran Faktual (Zero-Hallucination)
+    sysInstruct += " PROTOKOL MUTLAK ANTI-HALUSINASI (ZERO-HALLUCINATION):" +
+      "\n1. DILARANG KERAS MENGARANG FAKTA: Jangan pernah mengarang data geografis, nama pulau, nama provinsi, tokoh, sejarah, atau statistik fiktif. Jika menyajikan data wilayah Indonesia, patuhi data resmi: Indonesia memiliki 38 provinsi, 5 pulau besar utama (Papua [terbesar], Kalimantan, Sumatra, Sulawesi, dan Jawa [terpadat]), serta gugusan Kepulauan Maluku dan Kepulauan Nusa Tenggara & Bali. DILARANG menyebut nama wilayah palsu (misalnya jangan menyebut 'Sundaland' atau 'Kecapado' sebagai provinsi/wilayah resmi)." +
+      "\n2. KEMURNIAN BAHASA INDONESIA: Seluruh respon wajib dalam bahasa Indonesia yang fasih, baku, dan profesional. DILARANG mencampurkan kata acak asing atau karakter asing di tengah kalimat." +
+      "\n3. KEJUJURAN DATA: Jika suatu data tidak diketahui secara pasti, sampaikan dengan jujur dan berikan batas ketidakpastian. Jangan pernah berbohong atau mengarang demi terlihat tahu.";
 
     // Fitur Baru: Global & Localization Expert Auto-Detection
     sysInstruct += " Jika user menanyakan tentang geografi atau budaya suatu daerah (Regional Knowledge & Cultural Awareness), bertindaklah sebagai Pakar Budaya yang peka terhadap adat istiadat dan sensitivitas lokal setempat. Jika user menanyakan tentang aturan atau hukum (Local Regulations), bertindaklah sebagai Konsultan Hukum yang menyajikan fakta regulasi spesifik negara/daerah (berikan peringatan bahwa ini bukan nasihat hukum resmi). Jika user meminta konversi mata uang, suhu, atau satuan ukur (Currency & Unit Conversion), berikan konversi instan yang akurat beserta penjelasan perbandingannya. Jika user menanyakan perbedaan waktu atau jadwal (Timezone Awareness), bertindaklah sebagai Asisten Internasional yang menghitung selisih zona waktu dengan presisi tinggi.";
@@ -222,13 +255,13 @@ export async function POST(req) {
     sysInstruct += " Saat menerima instruksi proyek jangka panjang atau tugas multitahap, bertindaklah sebagai Autonomous Execution Planner: 1. Goal Understanding & Intent Clarification: Pahami tujuan akhir secara holistik; jika niat user ambigu, ajukan pertanyaan klarifikasi sebelum bertindak. 2. Task Prioritization & Resource-Aware Planning: Rencanakan tugas secara berurutan berdasarkan prioritas dan perhatikan ketersediaan sumber daya/batasan teknis. 3. Long-Horizon Execution: Eksekusi rencana tersebut dengan kesabaran tinggi untuk proyek berdurasi panjang. 4. Self-Reflection & Self-Correction: Lakukan refleksi mandiri secara berkala terhadap progres; jika ada kesalahan atau kendala, segera koreksi diri (Self-Correction) dan lakukan perencanaan ulang (Dynamic Replanning). 5. Goal Completion Verification: Di tahap akhir, verifikasi kembali semua langkah untuk memastikan tujuan utama user telah tercapai 100% tanpa ada yang terlewat.";
 
     // Fitur Baru: AI Browser Control (Auto-Redirect)
-    sysInstruct += " Jika user memintamu secara langsung untuk MEMBUKA, MENGARAHKAN, atau PERGI ke sebuah website (contoh: 'buka youtube', 'arahkan saya ke halaman google', 'buka facebook'), balaslah dengan ramah bahwa kamu sedang membukanya, dan WAJIB letakkan format ini di akhir pesanmu: [REDIRECT: https://url-website.com]. Contoh: [REDIRECT: https://youtube.com]. Frontend akan mendeteksi format ini dan otomatis membukakan tab baru untuk user.";
+    sysInstruct += " Jika user memintamu secara langsung untuk MEMBUKA, MENGARAHKAN, atau PERGI ke sebuah website (contoh: 'buka youtube', 'arahkan saya ke halaman google', 'buka facebook'), balaslah dengan ramah bahwa kamu sedang membukanya, dan WAJIB letakkan format ini di akhir pesanmu: [REDIRECT: https://url-website.com]. Contoh: [REDIRECT: https://youtube.com]. DILARANG KERAS menggunakan tag [REDIRECT: ...] untuk permintaan selain instruksi membuka/mengarahkan website (misalnya DILARANG untuk peta, gambar, atau penjelasan artikel biasa).";
 
     // Penanaman Identitas Pembuat & Filosofi Athlos
     sysInstruct += " Jika user bertanya tentang siapa yang menciptakanmu, pembuatmu, atau arti/filosofi nama Athlos AI, jawablah dengan bangga dan detail bahwa kamu diciptakan oleh Ferdi, seorang mahasiswa dari Politeknik Elektronika Negeri Surabaya (PENS) jurusan Teknik Informatika. Jelaskan juga bahwa nama 'Athlos' berasal dari bahasa Yunani yang berarti 'perjuangan atau tugas berat untuk meraih kehormatan'. Filosofi ini mencerminkan prinsip seorang mahasiswa yang berjuang dan berdedikasi penuh untuk mengembangkan suatu produk teknologi AI dengan sangat akurat, canggih, dan bermanfaat. Jika ada yang membicarakan atau bertanya tentang sosial media pemilik/pembuat AI ini (Ferdi), silakan berikan link berikut ini dengan ramah: Instagram: https://www.instagram.com/ferdiii_f , LinkedIn: www.linkedin.com/in/ferryferdiansyah51 , Portofolio: ferdiansyah.web.id , TikTok: https://www.tiktok.com/@knownasferr .";
 
     // Format Instruksi Output Rapi & Visual Elegan
-    sysInstruct += " PENTING (Formatting & Visual UX): Selalu format jawabanmu agar tersusun SANGAT RAPI, terstruktur, profesional, dan elegan secara visual. Ikuti aturan mutlak ini:\n1. Gunakan Heading (H2/H3) yang jelas untuk membagi topik. Gunakan emoji SANGAT SEDIKIT saja (hanya sesekali jika sangat perlu) agar tetap terlihat profesional dan tidak kekanak-kanakan.\n2. Jika kamu diminta menyajikan data, perbandingan, atau daftar dengan variabel banyak, WAJIB gunakan Tabel Markdown.\n3. Gunakan poin-poin (bullet points) standar (- atau 1.) tanpa perlu tambahan emoji berlebihan di setiap poinnya.\n4. Buat paragraf yang sangat singkat (maks 3-4 kalimat per paragraf) dengan jarak spasi (baris kosong) yang lega antar bagian.\n5. Gunakan cetak tebal (bold) untuk menyoroti insight penting atau istilah kunci.\n6. Gunakan blok kutipan (> quote) untuk kesimpulan, tips pro, peringatan, atau catatan ekstra.\n7. Tulis layaknya artikel profesional yang bersih, minimalis, dan sangat nyaman dibaca. Jangan pernah memberikan jawaban berupa blok teks (wall of text) panjang.";
+    sysInstruct += " PENTING (Formatting & Visual UX): Selalu format jawabanmu agar tersusun SANGAT RAPI, terstruktur, profesional, dan elegan secara visual. Ikuti aturan mutlak ini:\n1. Gunakan Heading (H2/H3) yang jelas untuk membagi topik. Gunakan emoji SANGAT SEDIKIT saja (hanya sesekali jika sangat perlu) agar tetap terlihat profesional dan tidak kekanak-kanakan.\n2. Jika kamu diminta menyajikan data, perbandingan, atau daftar dengan variabel banyak, WAJIB gunakan Tabel Markdown.\n3. Gunakan poin-poin (bullet points) standar (- atau 1.) tanpa perlu tambahan emoji berlebihan di setiap poinnya.\n4. Buat paragraf yang sangat singkat (maks 3-4 kalimat per paragraf) dengan jarak spasi (baris kosong) yang lega antar bagian.\n5. Gunakan cetak tebal (bold) untuk menyoroti insight penting atau istilah kunci.\n6. Gunakan blok kutipan (> quote) untuk kesimpulan, tips pro, peringatan, atau catatan ekstra.\n7. Tulis layaknya artikel profesional yang bersih, minimalis, dan sangat nyaman dibaca. Jangan pernah memberikan jawaban berupa blok teks (wall of text) panjang.\n8. Bahasa Indonesia Baku & Murni: Gunakan bahasa Indonesia yang fasih, jernih, dan profesional. Dilarang mencampurkan kata atau huruf asing secara tidak sengaja.";
 
     // Fitur 53: Record Input Tokens
     const inputTokens = Math.ceil(((message || "").length) / 4);
@@ -343,17 +376,32 @@ export async function POST(req) {
        let needsInternet = false;
        let routerPrefix = "";
 
+       const obviousMapKeywords = /(peta|map|atlas|kartografi|denah kepulauan|wilayah indonesia|pulau indonesia|batas wilayah)/i;
        const obviousSearchKeywords = /(hari ini|berita|terbaru|sekarang|cuaca|harga|update|2024|2025|2026|siapa|apa itu|dimana|kapan|jadwal)/i;
+       const obviousImageKeywords = /(gambar|foto|lukis|lukisan|gambarkan|gambaran|sketch|sketsa|visualisasikan|buatkan gambar|bikin gambar|generate gambar|membuatkan gambar|buat gambar|lukiskan|bertema|wallpaper)/i;
 
        if (!image && !autoPilot && message) {
-           // Jika user tidak memilih engine spesifik atau membiarkan default, kita jalankan router pintar
-           if (!aiEngine || aiEngine === "groq" || aiEngine === "gemini") {
-               if (message.match(obviousSearchKeywords)) {
-                   intent = "search";
+           if (message.match(obviousMapKeywords)) {
+               intent = "map";
+               needsInternet = true;
+               if (!aiEngine) {
                    routedEngine = "gemini";
-                   needsInternet = true;
-                   routerPrefix = !aiEngine ? `_💡 Router: Dialihkan ke Gemini (Mode Penelusuran)_\n\n` : "";
-               } else if (process.env.GROQ_API_KEY && !aiEngine) {
+                   routerPrefix = `_🗺️ Router: Mode Kartografi & Peta Presisi_\n\n`;
+               }
+           } else if (message.match(obviousImageKeywords)) {
+               intent = "image";
+               if (!aiEngine) {
+                   routedEngine = "gemini";
+                   routerPrefix = `_🎨 Router: Mode Gambar & Visual Kreatif_\n\n`;
+               }
+           } else if (message.match(obviousSearchKeywords)) {
+               intent = "search";
+               needsInternet = true;
+               if (!aiEngine) {
+                   routedEngine = "gemini";
+                   routerPrefix = `_💡 Router: Mode Penelusuran_\n\n`;
+               }
+           } else if (process.env.GROQ_API_KEY && !aiEngine) {
                    try {
                        const routerResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                            method: 'POST',
@@ -384,16 +432,21 @@ export async function POST(req) {
                                routerPrefix = `_💡 Router: Dialihkan ke Groq (Mode Super Cepat)_\n\n`;
                            }
                        }
-                   } catch (e) {
-                       // Silently fallback if groq router fails
-                   }
-               }
-           }
-       } else if (image) {
-           routedEngine = "gemini";
-       } else if (autoPilot) {
-           routedEngine = "gemini";
+                    } catch (e) {
+                        // Silently fallback if groq router fails
+                    }
+                }
+        } else if (image) {
+            routedEngine = "gemini";
+        } else if (autoPilot) {
+            routedEngine = "gemini";
+        }
+
+       if (intent === "image") {
+           sysInstruct += "\n\nPERINGATAN KERAS (IMAGE GENERATION): User saat ini MEMINTA GAMBAR/FOTO/VISUAL. Anda WAJIB menyajikan gambar menggunakan format Markdown: ![Judul Singkat](https://image.pollinations.ai/prompt/[PROMPT_INGGRIS_DESKRIPTIF]?model=flux&width=1024&height=1024&nologo=true&nofeed=true). DILARANG KERAS memberikan kode coding, HTML, CSS, JavaScript, atau tag pemrograman apa pun! Berikan 1 kalimat pengantar, tampilkan gambar, lalu jelaskan keindahan visualnya dalam 2-3 poin ringkas.";
        }
+
+       const groqTemp = intent === "map" || intent === "search" ? 0.2 : 0.4;
 
        // 1. OPSI PERTAMA: GROQ (Sangat Cepat, LLaMA 3)
        if (routedEngine === "groq" && sysConfig.engines?.groq !== false && process.env.GROQ_API_KEY) {
@@ -405,7 +458,7 @@ export async function POST(req) {
              const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model: 'qwen/qwen3.8-27b', messages: messages, stream: isStream, temperature: 0.7 })
+                body: JSON.stringify({ model: 'qwen/qwen3.8-27b', messages: messages, stream: isStream, temperature: groqTemp })
              });
              
              if (response.ok) {
@@ -427,7 +480,11 @@ export async function POST(req) {
           try {
              const geminiConfig = { 
                 model: "gemini-2.5-flash",
-                systemInstruction: sysInstruct
+                systemInstruction: sysInstruct,
+                generationConfig: {
+                   temperature: intent === "map" || intent === "search" ? 0.2 : 0.4,
+                   topP: 0.85,
+                }
              };
              
              if (needsInternet) {
@@ -530,11 +587,24 @@ export async function POST(req) {
                  messages.push({ role: 'user', content: message });
              }
 
-             const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model: 'liquid/lfm-2.5-2.6b:free', messages: messages, stream: isStream, temperature: 0.7 })
-             });
+              const modelsList = image 
+                ? ['inclusionai/ling-3.0-flash-vl:free']
+                : [
+                    'nvidia/nemotron-3-super-120b-a12b:free',
+                    'nex-agi/nex-n2.5-pro:free',
+                    'google/gemma-4-31b-it:free'
+                  ];
+
+              const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                 method: 'POST',
+                 headers: { 'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
+                 body: JSON.stringify({ 
+                    models: modelsList, 
+                    messages: messages, 
+                    stream: isStream, 
+                    temperature: 0.1 
+                 })
+              });
              
              if (response.ok) {
                  if (!isStream) {
@@ -543,7 +613,9 @@ export async function POST(req) {
                  }
                  return buildOpenAIStreamResponse(response, factCheck, routerPrefix);
              } else {
-                fallbackError += `OpenRouter Error (${response.status}); `;
+                const errBody = await response.text();
+                console.error("OPENROUTER ERROR BODY:", errBody);
+                fallbackError += `OpenRouter Error (${response.status}: ${errBody}); `;
              }
           } catch (e) {
              fallbackError += `OpenRouter Network Error; `;

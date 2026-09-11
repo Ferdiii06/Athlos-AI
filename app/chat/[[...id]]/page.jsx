@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
@@ -54,6 +54,11 @@ const Code = (p) => <BoxIcon name="bx-code-alt" {...p} />;
 const Camera = (p) => <BoxIcon name="bx-camera" {...p} />;
 const Palette = (p) => <BoxIcon name="bx-palette" {...p} />;
 const ShieldAlert = (p) => <BoxIcon name="bx-shield-x" {...p} />;
+const Brain = (p) => <BoxIcon name="bx-brain" {...p} />;
+const Wand = (p) => <BoxIcon name="bx-magic-wand" {...p} />;
+const ChevronDown = (p) => <BoxIcon name="bx-chevron-down" {...p} />;
+const ChevronRight = (p) => <BoxIcon name="bx-chevron-right" {...p} />;
+const Zap = (p) => <BoxIcon name="bx-zap" {...p} />;
 
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -65,6 +70,7 @@ import { Toaster, toast } from 'react-hot-toast';
 import mermaid from 'mermaid';
 import CameraCaptureModal from '../../components/CameraCaptureModal';
 import RealtimeImageStudio from '../../components/RealtimeImageStudio';
+import ViralShareModal from '../../components/ViralShareModal';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -218,113 +224,401 @@ MermaidChart.displayName = 'MermaidChart';
 const sanitizeMarkdownText = (rawText) => {
   if (!rawText) return '';
 
-  // 1. Tangani format ![alt](https://image.pollinations.ai/prompt/teks spasi?params)
+  // 1. Tangani format ![alt](https://image.pollinations.ai/prompt/...)
   let processed = rawText.replace(/!\[(.*?)\]\((https?:\/\/image\.pollinations\.ai\/prompt\/)([\s\S]*?)\)/g, (match, alt, base, rest) => {
+    // Bersihkan alt text dari pipe atau parameter aneh yang dibuat LLM
+    let cleanAlt = alt || 'Gambar AI';
+    if (cleanAlt.includes('|')) cleanAlt = cleanAlt.split('|')[0].trim();
+    if (cleanAlt.length > 80) cleanAlt = cleanAlt.substring(0, 77) + '...';
+
     let promptPart = rest;
     let queryPart = '';
+    
+    // Deteksi separator query string (bisa '?' atau kesalahan sintaks mediawiki '|')
+    const pIndex = rest.indexOf('|');
     const qIndex = rest.indexOf('?');
-    if (qIndex !== -1) {
-      promptPart = rest.slice(0, qIndex);
-      queryPart = rest.slice(qIndex);
-    } else {
-      queryPart = '?width=1024&height=1024&nologo=true';
+    let splitIndex = -1;
+    if (pIndex !== -1 && qIndex !== -1) {
+      splitIndex = Math.min(pIndex, qIndex);
+    } else if (pIndex !== -1) {
+      splitIndex = pIndex;
+    } else if (qIndex !== -1) {
+      splitIndex = qIndex;
     }
-    // Encode karakter spesial dan spasi
-    const cleanPrompt = encodeURIComponent(decodeURIComponent(promptPart.trim()).replace(/\s+/g, ' '));
-    return `![${alt || 'Generated Image'}](${base}${cleanPrompt}${queryPart})`;
+
+    if (splitIndex !== -1) {
+      promptPart = rest.slice(0, splitIndex);
+      queryPart = rest.slice(splitIndex + 1).replace(/^[|?]+/, '');
+    }
+
+    // Normalisasi parameter query dari format pipe ataupun query string biasa
+    queryPart = queryPart.replace(/\|/g, '&');
+    const params = new URLSearchParams(queryPart);
+    if (!params.has('width')) params.set('width', '1024');
+    if (!params.has('height')) params.set('height', '1024');
+    params.set('nologo', 'true');
+    params.set('nofeed', 'true');
+    if (!params.has('model') || params.get('model') === 'turbo') {
+      params.set('model', 'flux');
+    }
+
+    // Decode dan bersihkan prompt teks dari karakter ilegal
+    let decoded = promptPart.trim();
+    try {
+      decoded = decodeURIComponent(promptPart.trim());
+    } catch {
+      // Biarkan as-is jika decode gagal
+    }
+    
+    // Hapus karakter yang bisa merusak URI browser/Cloudflare
+    decoded = decoded.replace(/[|`"{}\\]/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    // Batasi panjang kata agar URL tidak 414 / terpotong oleh browser
+    const words = decoded.split(' ');
+    if (words.length > 45) {
+      decoded = words.slice(0, 45).join(' ');
+    }
+
+    // Deteksi cerdas: Model difusi tidak bisa menggambar peta nyata atau teks peta yang terbaca.
+    // Jika prompt meminta peta Indonesia atau peta nusantara, ganti dengan peta kartografi vektor resmi HD dari Wikimedia
+    const lowerPrompt = decoded.toLowerCase();
+    if (lowerPrompt.includes('indonesia') && (lowerPrompt.includes('map') || lowerPrompt.includes('peta') || lowerPrompt.includes('island') || lowerPrompt.includes('pulau') || lowerPrompt.includes('provinsi'))) {
+      return `![Peta Resmi Republik Indonesia - Seluruh Provinsi, Pulau Utama, dan Batas Wilayah](https://upload.wikimedia.org/wikipedia/commons/thumb/b/ba/Provinces_of_Indonesia.svg/1920px-Provinces_of_Indonesia.svg.png)`;
+    }
+    if ((lowerPrompt.includes('world') || lowerPrompt.includes('dunia')) && (lowerPrompt.includes('map') || lowerPrompt.includes('peta'))) {
+      return `![Peta Dunia Resolusi Tinggi - Kartografi Resmi](https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/World_map_-_low_resolution.svg/1920px-World_map_-_low_resolution.svg.png)`;
+    }
+
+    const cleanPrompt = encodeURIComponent(decoded);
+    return `![${cleanAlt}](${base}${cleanPrompt}?${params.toString()})`;
   });
+
+  // Hapus tag teknis REDIRECT agar tidak tampil mengganggu di gelembung obrolan
+  processed = processed.replace(/\[REDIRECT:\s*https?:\/\/[^\]]+\]/gi, '').trim();
 
   return processed;
 };
 
+const ChatImageRenderer = React.memo(function ChatImageRenderer({ src, alt, onEditImage }) {
+  const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+  const [currentSrc, setCurrentSrc] = useState(src);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const [isZoomOpen, setIsZoomOpen] = useState(false);
+
+  const isPollinations = Boolean(currentSrc && currentSrc.includes('pollinations.ai'));
+
+  let cleanTitle = alt || 'Visual AI';
+  if (cleanTitle.includes('|')) cleanTitle = cleanTitle.split('|')[0].trim();
+  if (cleanTitle.length > 80) cleanTitle = cleanTitle.substring(0, 77) + '...';
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setIsZoomOpen(false);
+    };
+    if (isZoomOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isZoomOpen]);
+
+  const handleRetry = () => {
+    setIsError(false);
+    setIsLoading(true);
+    try {
+      const url = new URL(currentSrc);
+      if (retryAttempt === 0) {
+        url.searchParams.set('model', 'turbo');
+      }
+      url.searchParams.set('seed', Math.floor(Math.random() * 999999).toString());
+      setCurrentSrc(url.toString());
+      setRetryAttempt(prev => prev + 1);
+    } catch {
+      const glue = currentSrc.includes('?') ? '&' : '?';
+      setCurrentSrc(`${currentSrc}${glue}seed=${Date.now()}`);
+    }
+  };
+
+  const handleDownloadClean = () => {
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = currentSrc;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        // Pangkas watermark HANYA jika berasal dari model pollinations
+        const targetHeight = isPollinations ? Math.max(img.naturalHeight - 40, 100) : img.naturalHeight;
+        canvas.width = img.naturalWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, img.naturalWidth, targetHeight, 0, 0, img.naturalWidth, targetHeight);
+
+        const link = document.createElement('a');
+        link.download = `${cleanTitle.replace(/[^a-zA-Z0-9_-]/g, '_') || 'athlos_visual'}.jpg`;
+        link.href = canvas.toDataURL('image/jpeg', 0.95);
+        link.click();
+      };
+      img.onerror = () => {
+        window.open(currentSrc, '_blank');
+      };
+    } catch {
+      window.open(currentSrc, '_blank');
+    }
+  };
+
+  return (
+    <>
+      <div className="my-4 rounded-2xl overflow-hidden border border-white/15 bg-[#141211] shadow-2xl group/img relative inline-block max-w-full">
+        {/* Loading Skeleton & Shimmer */}
+        {isLoading && !isError && (
+          <div className="w-full min-w-[280px] sm:min-w-[480px] h-[320px] flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-[#1c1917] via-[#26211f] to-[#161312] p-6 text-center animate-pulse border border-white/10 rounded-2xl">
+            <div className="w-10 h-10 rounded-full border-2 border-[#FFBE98] border-t-transparent animate-spin" />
+            <p className="text-sm font-semibold text-[#FFBE98] tracking-wide">Sedang memuat visual resolusi tinggi...</p>
+            <p className="text-xs text-stone-400 max-w-sm line-clamp-2 italic">&ldquo;{cleanTitle}&rdquo;</p>
+          </div>
+        )}
+
+        {/* Error Fallback Card */}
+        {isError && (
+          <div className="w-full min-w-[280px] sm:min-w-[440px] p-6 flex flex-col items-center justify-center gap-3 bg-[#1c1615] text-center border border-red-500/30 rounded-2xl">
+            <div className="w-10 h-10 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center">
+              <Sparkles size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">Visual gambar sedang disiapkan atau server padat</p>
+              <p className="text-xs text-stone-400 mt-1 max-w-xs">Gunakan tombol muat ulang dengan model cepat atau buka di studio.</p>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <button
+                onClick={handleRetry}
+                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <RefreshCw size={13} /> Coba Muat Ulang
+              </button>
+              {onEditImage && isPollinations && (
+                <button
+                  onClick={() => onEditImage(cleanTitle, currentSrc)}
+                  className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] text-xs font-bold transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
+                >
+                  <Palette size={13} /> Edit di Studio
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Image Container */}
+        <div
+          onClick={() => !isLoading && !isError && setIsZoomOpen(true)}
+          className={`overflow-hidden rounded-2xl relative cursor-zoom-in ${isLoading || isError ? 'hidden' : 'block'}`}
+          title="Klik untuk melihat resolusi penuh / perbesar"
+        >
+          <img
+            src={currentSrc}
+            alt={cleanTitle}
+            onLoad={() => setIsLoading(false)}
+            onError={() => {
+              setIsLoading(false);
+              setIsError(true);
+            }}
+            className={`max-w-full rounded-2xl transition-all duration-300 ${
+              isPollinations
+                ? 'max-h-[540px] object-cover transform scale-[1.042] origin-top'
+                : 'max-h-[620px] object-contain bg-black/30'
+            }`}
+            style={{ marginBottom: isPollinations ? '-38px' : '0px' }}
+          />
+        </div>
+
+        {/* Floating Action Controls on Hover */}
+        {!isLoading && !isError && (
+          <div className="absolute top-3 right-3 flex items-center gap-1.5 opacity-90 sm:opacity-0 group-hover/img:opacity-100 transition-opacity bg-black/85 backdrop-blur-md p-1.5 rounded-xl border border-white/15 shadow-xl z-10">
+            {onEditImage && isPollinations && (
+              <button
+                onClick={() => onEditImage(cleanTitle, currentSrc)}
+                className="px-2.5 py-1.5 bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] font-bold text-xs rounded-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-1 shadow-[0_0_10px_rgba(255,190,152,0.4)] cursor-pointer"
+                title="Edit dan Sesuaikan Gambar di Studio Real-time"
+              >
+                <Palette size={14} /> <span>Edit di Studio</span>
+              </button>
+            )}
+            <button
+              onClick={() => setIsZoomOpen(true)}
+              className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-xs flex items-center justify-center cursor-pointer"
+              title="Perbesar Layar Penuh (Zoom)"
+            >
+              <Maximize size={14} />
+            </button>
+            <button
+              onClick={handleDownloadClean}
+              className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-xs flex items-center justify-center cursor-pointer"
+              title="Download Visual Bersih"
+            >
+              <Download size={14} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Fullscreen Lightbox Modal */}
+      {isZoomOpen && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/95 backdrop-blur-lg flex flex-col p-4 sm:p-6 animate-fadeIn"
+          onClick={() => setIsZoomOpen(false)}
+        >
+          <div
+            className="flex items-center justify-between pb-3 border-b border-white/10 w-full max-w-7xl mx-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#FFBE98] animate-ping" />
+              <h3 className="text-white font-semibold text-sm sm:text-base line-clamp-1">{cleanTitle}</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleDownloadClean}
+                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Download size={14} /> <span>Unduh HD</span>
+              </button>
+              <button
+                onClick={() => setIsZoomOpen(false)}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-red-500/30 text-white hover:text-red-400 transition-all cursor-pointer"
+                title="Tutup (Esc)"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+
+          <div
+            className="flex-1 flex items-center justify-center overflow-auto p-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={currentSrc}
+              alt={cleanTitle}
+              className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl ring-1 ring-white/15 cursor-zoom-out"
+              onClick={() => setIsZoomOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
+});
+
 const MemoizedMarkdown = React.memo(function MemoizedMarkdown({ text, openCanvas, onEditImage }) {
   const sanitizedText = React.useMemo(() => sanitizeMarkdownText(text), [text]);
+
+  const components = React.useMemo(() => ({
+    img({ src, alt }) {
+      return <ChatImageRenderer src={src} alt={alt} onEditImage={onEditImage} />;
+    },
+    code({ inline, className, children, ...props }) {
+      const match = /language-(\w+)/.exec(className || '');
+      const codeString = String(children).replace(/\n$/, '');
+
+      return !inline && match ? (
+        match[1].toLowerCase() === 'mermaid' ? (
+          <MermaidChart chart={codeString} />
+        ) : (
+        <div className="my-4 rounded-lg overflow-hidden border border-[#333] shadow-md group/code">
+          <div className="flex items-center justify-between px-4 py-2 bg-[#2f2f2f] text-xs font-sans text-gray-400 border-b border-[#333]">
+            <span className="font-medium">{match[1]}</span>
+            <div className="flex items-center gap-3">
+              {match[1] === 'html' && (
+                <button onClick={() => {
+                  let htmlContent = codeString;
+                  if (!htmlContent.includes('tailwindcss')) {
+                    htmlContent = `<script src="https://cdn.tailwindcss.com"></script>\n${htmlContent}`;
+                  }
+                  openCanvas({ type: 'html', content: htmlContent });
+                }} className="text-gray-400 hover:text-green-400 transition-colors flex items-center gap-1 border border-gray-600 px-2 py-0.5 rounded-md hover:border-green-400/50">
+                  <Play size={12} /> <span className="text-[10px] uppercase font-bold">Preview</span>
+                </button>
+              )}
+              <button onClick={() => openCanvas({ type: 'code', content: codeString, language: match[1] })} className="text-gray-400 hover:text-blue-400 transition-colors flex items-center gap-1 border border-gray-600 px-2 py-0.5 rounded-md hover:border-blue-400/50 opacity-0 group-hover/code:opacity-100">
+                <Maximize size={12} /> <span className="text-[10px] uppercase font-bold">Canvas</span>
+              </button>
+              <CopyButton text={codeString} />
+            </div>
+          </div>
+          <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="!m-0 !bg-[#1e1e1e]" {...props}>{codeString}</SyntaxHighlighter>
+        </div>
+        )
+      ) : (<code className="bg-[#2f2f2f] px-1.5 py-0.5 rounded text-gray-200 font-mono text-sm before:content-[''] after:content-['']" {...props}>{children}</code>)
+    }
+  }), [onEditImage, openCanvas]);
 
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}
-      components={{
-        img({ src, alt }) {
-          let extractedPrompt = alt || 'Gambar AI';
-          if ((extractedPrompt === 'Generated Image' || !extractedPrompt) && src && src.includes('/prompt/')) {
-            try {
-              const match = src.match(/\/prompt\/([^?]+)/);
-              if (match && match[1]) {
-                extractedPrompt = decodeURIComponent(match[1]);
-              }
-            } catch {
-              extractedPrompt = 'Gambar AI';
-            }
-          }
+      components={components}
+    >
+      {sanitizedText}
+    </ReactMarkdown>
+  );
+});
 
-          return (
-            <div className="my-4 rounded-2xl overflow-hidden border border-white/15 bg-black/40 shadow-2xl group/img relative inline-block max-w-full">
-              <img
-                src={src}
-                alt={extractedPrompt}
-                className="max-w-full max-h-[520px] object-contain rounded-2xl bg-[#161312] transition-transform duration-300 block"
-                loading="lazy"
-              />
-              
-              {/* Floating Action Controls */}
-              <div className="absolute top-3 right-3 flex items-center gap-1.5 opacity-90 sm:opacity-0 group-hover/img:opacity-100 transition-opacity bg-black/85 backdrop-blur-md p-1.5 rounded-xl border border-white/15 shadow-xl">
-                {onEditImage && (
-                  <button
-                    onClick={() => onEditImage(extractedPrompt, src)}
-                    className="px-2.5 py-1.5 bg-gradient-to-r from-[#FFBE98] to-[#F9A48C] text-[#201B1A] font-bold text-xs rounded-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-1 shadow-[0_0_10px_rgba(255,190,152,0.4)] cursor-pointer"
-                    title="Edit dan Sesuaikan Gambar di Studio Real-time"
-                  >
-                    <Palette size={14} /> <span>Edit di Studio</span>
-                  </button>
-                )}
-                <a
-                  href={src}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-xs flex items-center justify-center cursor-pointer"
-                  title="Buka Gambar Resolusi Penuh"
-                >
-                  <Download size={14} />
-                </a>
-              </div>
-            </div>
-          );
-        },
-        code({ inline, className, children, ...props }) {
-          const match = /language-(\w+)/.exec(className || '');
-          const codeString = String(children).replace(/\n$/, '');
+// Deep Reasoning Parser & Accordion Component (DeepSeek R1 / Hermes style)
+const parseThinkingAndFinalText = (rawText) => {
+  if (!rawText) return { thinkText: '', finalText: '', hasThinking: false, isThinking: false };
 
-          return !inline && match ? (
-            match[1].toLowerCase() === 'mermaid' ? (
-              <MermaidChart chart={codeString} />
-            ) : (
-            <div className="my-4 rounded-lg overflow-hidden border border-[#333] shadow-md group/code">
-              <div className="flex items-center justify-between px-4 py-2 bg-[#2f2f2f] text-xs font-sans text-gray-400 border-b border-[#333]">
-                <span className="font-medium">{match[1]}</span>
-                <div className="flex items-center gap-3">
-                  {match[1] === 'html' && (
-                    <button onClick={() => {
-                      let htmlContent = codeString;
-                      if (!htmlContent.includes('tailwindcss')) {
-                        htmlContent = `<script src="https://cdn.tailwindcss.com"></script>\n${htmlContent}`;
-                      }
-                      openCanvas({ type: 'html', content: htmlContent });
-                    }} className="text-gray-400 hover:text-green-400 transition-colors flex items-center gap-1 border border-gray-600 px-2 py-0.5 rounded-md hover:border-green-400/50">
-                      <Play size={12} /> <span className="text-[10px] uppercase font-bold">Preview</span>
-                    </button>
-                  )}
-                  <button onClick={() => openCanvas({ type: 'code', content: codeString, language: match[1] })} className="text-gray-400 hover:text-blue-400 transition-colors flex items-center gap-1 border border-gray-600 px-2 py-0.5 rounded-md hover:border-blue-400/50 opacity-0 group-hover/code:opacity-100">
-                    <Maximize size={12} /> <span className="text-[10px] uppercase font-bold">Canvas</span>
-                  </button>
-                  <CopyButton text={codeString} />
-                </div>
-              </div>
-              <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="!m-0 !bg-[#1e1e1e]" {...props}>{codeString}</SyntaxHighlighter>
-            </div>
-            )
-          ) : (<code className="bg-[#2f2f2f] px-1.5 py-0.5 rounded text-gray-200 font-mono text-sm before:content-[''] after:content-['']" {...props}>{children}</code>)
-        }
-      }}>{sanitizedText}</ReactMarkdown>
+  const thinkStartIdx = rawText.indexOf('<think>');
+  if (thinkStartIdx === -1) {
+    return { thinkText: '', finalText: rawText, hasThinking: false, isThinking: false };
+  }
+
+  const thinkEndIdx = rawText.indexOf('</think>');
+  if (thinkEndIdx !== -1) {
+    const thinkText = rawText.substring(thinkStartIdx + 7, thinkEndIdx).trim();
+    const finalText = (rawText.substring(0, thinkStartIdx) + rawText.substring(thinkEndIdx + 8)).trim();
+    return { thinkText, finalText, hasThinking: true, isThinking: false };
+  } else {
+    // Sedang streaming di dalam tag think
+    const thinkText = rawText.substring(thinkStartIdx + 7).trim();
+    const finalText = rawText.substring(0, thinkStartIdx).trim();
+    return { thinkText, finalText, hasThinking: true, isThinking: true };
+  }
+};
+
+const ThinkingAccordion = React.memo(function ThinkingAccordion({ thinkText, isThinking }) {
+  const [isOpen, setIsOpen] = useState(true);
+
+  if (!thinkText && !isThinking) return null;
+
+  return (
+    <div className="mb-4 rounded-xl border border-purple-500/25 bg-gradient-to-r from-purple-950/20 via-[#1e1329]/30 to-purple-950/10 backdrop-blur-md overflow-hidden transition-all shadow-sm">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-3.5 py-2.5 text-xs text-purple-300 hover:text-purple-200 hover:bg-purple-500/10 transition-colors text-left font-mono select-none cursor-pointer"
+      >
+        <div className="flex items-center gap-2">
+          <Brain size={16} className={`text-purple-400 ${isThinking ? 'animate-pulse' : ''}`} />
+          <span className="font-semibold tracking-wide">
+            {isThinking ? 'Proses Penalaran Mendalam (Deep Reasoning)...' : 'Penalaran Berpikir (Deep Reasoning)'}
+          </span>
+          {isThinking && (
+            <span className="inline-block w-2 h-2 rounded-full bg-purple-400 animate-ping ml-1" />
+          )}
+        </div>
+        <div className="flex items-center gap-1 text-[11px] text-purple-400/80">
+          <span>{isOpen ? 'Sembunyikan' : 'Lihat Detail'}</span>
+          {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="px-4 py-3 border-t border-purple-500/15 bg-black/30 text-xs text-purple-100/90 font-mono leading-relaxed whitespace-pre-wrap max-h-80 overflow-y-auto select-text border-l-2 border-l-purple-400/60 ml-2 my-2 mr-2 rounded-r">
+          {thinkText || (isThinking ? 'Menganalisis prompt dan merumuskan penalaran mendalam...' : '')}
+          {isThinking && (
+            <span className="inline-block w-1.5 h-3.5 bg-purple-400 ml-1 animate-pulse align-middle" />
+          )}
+        </div>
+      )}
+    </div>
   );
 });
 
@@ -384,12 +678,44 @@ export default function Page() {
   // Using state instead of initial function to avoid hydration mismatch
   const [guestChatCount, setGuestChatCount] = useState(0);
   const [showAdmin, setShowAdmin] = useState(false);
-
   const [sidebarChats, setSidebarChats] = useState([]);
   const [persona, setPersona] = useState('normal');
+  const [audience, setAudience] = useState('auto'); // auto, kids, teens, pro, academic
+  const [deepThink, setDeepThink] = useState(false);
+  const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [aiEngine, setAiEngine] = useState('openrouter');
   const [factCheck, setFactCheck] = useState(false);
   const [autoPilot, setAutoPilot] = useState(false);
+
+  // ChatGPT-style Prompt Magic Enhancer
+  const handleEnhancePrompt = () => {
+    if (!input.trim()) {
+      toast('Tuliskan draf pertanyaan/prompt terlebih dahulu.', { icon: '✍️' });
+      inputRef.current?.focus();
+      return;
+    }
+    setIsEnhancingPrompt(true);
+    const raw = input.trim();
+    let enhanced = '';
+    const lower = raw.toLowerCase();
+
+    if (lower.startsWith('buatkan') || lower.startsWith('bikin') || lower.startsWith('tolong buatkan')) {
+      enhanced = `Bertindaklah sebagai Senior Specialist. Rancang dan buatkan solusi komprehensif, terstruktur, serta siap pakai untuk kebutuhan berikut:\n\n📌 Kebutuhan Utama:\n"${raw}"\n\n🎯 Format Hasil yang Diinginkan:\n- Penjelasan ringkas & objektif\n- Rencana implementasi / konten langkah-demi-langkah\n- Praktik terbaik (best practices) & tips optimalisasi`;
+    } else if (lower.includes('jelaskan') || lower.includes('apa itu') || lower.includes('bagaimana cara')) {
+      enhanced = `Tolong berikan penjelasan mendalam, komprehensif, dan mudah dipahami mengenai:\n\n"${raw}"\n\nSajikan jawaban terstruktur dengan:\n1. Definisi & Konsep Inti (Core Concept)\n2. Cara Kerja atau Analisis Langkah-demi-Langkah\n3. Contoh Nyata / Studi Kasus dalam Kehidupan Nyata\n4. Kesimpulan & Poin-poin Penting`;
+    } else if (lower.includes('koding') || lower.includes('code') || lower.includes('fungsi') || lower.includes('react') || lower.includes('bug')) {
+      enhanced = `Sebagai Senior Software Engineer berpengalaman, tolong berikan solusi kode berstandar industri untuk:\n\n"${raw}"\n\nHarap sertakan:\n- Arsitektur / logika solusi\n- Kode lengkap, bersih (clean code), modular, dan efisien\n- Penanganan error (error handling) & keamanan dasar\n- Contoh cara pengujian atau pemakaian`;
+    } else {
+      enhanced = `Tolong analisis dan berikan tanggapan mendalam berstandar tinggi mengenai:\n\n"${raw}"\n\nPastikan jawaban mencakup analisis terperinci, data faktual yang valid, wawasan strategis, serta ringkasan yang jelas dan langsung dapat ditindaklanjuti.`;
+    }
+
+    setTimeout(() => {
+      setInput(enhanced);
+      setIsEnhancingPrompt(false);
+      toast.success('Prompt ditingkatkan dengan Magic Enhancer!', { icon: '✨' });
+      inputRef.current?.focus();
+    }, 200);
+  };
   const [selectedImage, setSelectedImage] = useState(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -403,6 +729,7 @@ export default function Page() {
   const [showImageStudio, setShowImageStudio] = useState(false);
   const [studioReferencePhoto, setStudioReferencePhoto] = useState(null);
   const [studioInitialPrompt, setStudioInitialPrompt] = useState('');
+  const [showShareModal, setShowShareModal] = useState(false);
 
   const handleCapturePhoto = (dataUrl) => {
     setSelectedImage(dataUrl);
@@ -414,11 +741,11 @@ export default function Page() {
     setShowImageStudio(true);
   };
 
-  const handleOpenStudioForEdit = (promptText, imageUrl) => {
+  const handleOpenStudioForEdit = useCallback((promptText, imageUrl) => {
     setStudioInitialPrompt(promptText || '');
     setStudioReferencePhoto(imageUrl || null);
     setShowImageStudio(true);
-  };
+  }, []);
 
   const handleSendStudioImageToChat = (imageUrl, promptText) => {
     const userMsg = {
@@ -440,6 +767,7 @@ export default function Page() {
   };
 
   const chatContainerRef = useRef(null);
+  const isAtBottomRef = useRef(true);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -525,13 +853,12 @@ export default function Page() {
     toast.success("Obrolan berhasil dihapus.", { style: { background: '#333', color: '#fff' } });
   };
 
-  // Auto-resize textarea
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.style.height = 'auto';
-      inputRef.current.style.height = inputRef.current.scrollHeight + 'px';
-    }
-  }, [input]);
+  const handleInputChange = (e) => {
+    setInput(e.target.value);
+    const target = e.target;
+    target.style.height = 'auto';
+    target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
+  };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -714,12 +1041,14 @@ export default function Page() {
   const handleScroll = () => {
     if (!chatContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-    setShowScrollButton(scrollHeight - scrollTop - clientHeight > 100);
+    const isBottom = scrollHeight - scrollTop - clientHeight < 120;
+    isAtBottomRef.current = isBottom;
+    setShowScrollButton(!isBottom);
   };
 
-  const scrollToBottom = () => {
+  const scrollToBottom = (behavior = 'auto') => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
+      chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior });
     }
   };
 
@@ -733,9 +1062,11 @@ export default function Page() {
   };
 
   useEffect(() => {
-    // Auto-scroll saat ada pesan baru jika tidak sedang scroll ke atas
-    if (!showScrollButton) scrollToBottom();
-  }, [chat, showScrollButton]);
+    // Auto-scroll hanya berjalan saat chat ter-update dan user sedang berada di bawah
+    if (isAtBottomRef.current && chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'auto' });
+    }
+  }, [chat]);
 
   const loadChat = async (chatId) => {
     if (loading) return;
@@ -913,7 +1244,7 @@ export default function Page() {
           finalPayload += "\n\n[System Note: Pengguna sepertinya sedang sedih. Tolong jawab dengan penuh empati, memotivasi, sangat hangat dan menghibur.]";
         }
 
-        const payloadBody = { message: finalPayload, history: historyPayload, persona, aiEngine, isStream, factCheck, autoPilot };
+        const payloadBody = { message: finalPayload, history: historyPayload, persona, audience, deepThink, aiEngine, isStream, factCheck, autoPilot };
         if (autoPilot) payloadBody.isStream = false; // Disable streaming for pure JSON
         if (currentImage) payloadBody.image = currentImage;
 
@@ -1214,22 +1545,32 @@ export default function Page() {
       )}
 
       {/* Modal Kamera Langsung */}
-      <CameraCaptureModal
-        isOpen={showCameraModal}
-        onClose={() => setShowCameraModal(false)}
-        onCapture={handleCapturePhoto}
-        onOpenStudioWithPhoto={handleOpenStudioFromCamera}
-      />
+      {showCameraModal && (
+        <CameraCaptureModal
+          isOpen={showCameraModal}
+          onClose={() => setShowCameraModal(false)}
+          onCapture={handleCapturePhoto}
+          onOpenStudioWithPhoto={handleOpenStudioFromCamera}
+        />
+      )}
 
       {/* Studio Gambar Real-time */}
-      <RealtimeImageStudio
-        key={showImageStudio ? `studio-${studioInitialPrompt}-${studioReferencePhoto ? '1' : '0'}` : 'closed'}
-        isOpen={showImageStudio}
-        onClose={() => setShowImageStudio(false)}
-        initialPrompt={studioInitialPrompt}
-        initialReferencePhoto={studioReferencePhoto}
-        onSendToChat={handleSendStudioImageToChat}
-        onUseAsInput={handleUseStudioImageAsInput}
+      {showImageStudio && (
+        <RealtimeImageStudio
+          key={showImageStudio ? `studio-${studioInitialPrompt}-${studioReferencePhoto ? '1' : '0'}` : 'closed'}
+          isOpen={showImageStudio}
+          onClose={() => setShowImageStudio(false)}
+          initialPrompt={studioInitialPrompt}
+          initialReferencePhoto={studioReferencePhoto}
+          onSendToChat={handleSendStudioImageToChat}
+          onUseAsInput={handleUseStudioImageAsInput}
+        />
+      )}
+
+      {/* Modal Viral Share */}
+      <ViralShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
       />
 
       {showAdmin && (
@@ -1314,6 +1655,13 @@ export default function Page() {
                 </div>
               </div>
               
+              <button 
+                onClick={() => setShowShareModal(true)} 
+                className="w-full mb-2 py-2 px-3 bg-gradient-to-r from-[#FFBE98]/20 to-[#F9A48C]/10 border border-[#FFBE98]/35 hover:border-[#FFBE98]/60 text-[#FFBE98] rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95 shadow-sm cursor-pointer"
+                title="Bagikan Athlos AI ke Teman & Media Sosial"
+              >
+                <i className="bx bx-share-alt text-base"></i> Bagikan AI Gratis
+              </button>
               <Link href="/" className="flex items-center gap-3 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
                 <Home size={16} /> Beranda
               </Link>
@@ -1329,6 +1677,13 @@ export default function Page() {
             </>
           ) : (
             <>
+              <button 
+                onClick={() => setShowShareModal(true)} 
+                className="w-full mb-2 py-2 px-3 bg-gradient-to-r from-[#FFBE98]/20 to-[#F9A48C]/10 border border-[#FFBE98]/35 hover:border-[#FFBE98]/60 text-[#FFBE98] rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95 shadow-sm cursor-pointer"
+                title="Bagikan Athlos AI ke Teman & Media Sosial"
+              >
+                <i className="bx bx-share-alt text-base"></i> Bagikan AI Gratis
+              </button>
               <Link href="/" className="flex items-center gap-3 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors mb-2">
                 <Home size={16} /> Beranda
               </Link>
@@ -1384,7 +1739,7 @@ export default function Page() {
             </button>
           )}
 
-          <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto relative scroll-smooth">
+          <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto relative overscroll-contain">
             {chat.length === 0 ? (
               <div className="flex flex-col items-center px-4 pt-24 md:pt-24 pb-32 animate-in fade-in duration-700">
                 <div className="relative mb-8 mt-4">
@@ -1403,7 +1758,7 @@ export default function Page() {
             ) : (
               <div className="pt-20 md:pt-6 pb-6">
                 {chat.map((msg, i) => (
-                  <div key={i} className={`py-8 px-4 group animate-in fade-in slide-in-from-bottom-2 duration-500 ${msg.role === 'user' ? 'bg-transparent' : 'bg-[#FFBE98]/[0.02] backdrop-blur-md border-y border-[#FFBE98]/10 shadow-[0_10px_40px_rgba(0,0,0,0.1)]'}`}>
+                  <div key={i} className={`py-8 px-4 group transition-colors duration-150 ${msg.role === 'user' ? 'bg-transparent' : 'bg-white/[0.015] border-y border-white/[0.04]'}`}>
                     <div className="max-w-4xl mx-auto flex gap-4 md:gap-6 relative">
                       <div className="shrink-0 mt-1">
                         {msg.role === 'user' ? (
@@ -1427,24 +1782,50 @@ export default function Page() {
                           </div>
                         )}
 
-                        {msg.text === '' && loading && i === chat.length - 1 ? (
-                          <div className="flex items-center h-6 gap-1.5 mt-1">
-                            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                          </div>
-                        ) : (
-                          <div className="prose prose-invert prose-p:leading-relaxed max-w-none text-[15px] text-gray-200 overflow-x-auto relative">
-                            {msg.role === 'assistant' && renderAutoPilotPlan(msg.text) ? (
-                               renderAutoPilotPlan(msg.text)
-                            ) : (
-                               <MemoizedMarkdown text={msg.text} openCanvas={setCanvasState} onEditImage={handleOpenStudioForEdit} />
-                            )}
-                            {loading && i === chat.length - 1 && msg.text !== '' && (
-                              <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse align-middle rounded-sm"></span>
-                            )}
-                          </div>
-                        )}
+                        {(() => {
+                          const isAssistant = msg.role === 'assistant';
+                          const { thinkText, finalText, hasThinking, isThinking } = isAssistant 
+                            ? parseThinkingAndFinalText(msg.text)
+                            : { thinkText: '', finalText: msg.text, hasThinking: false, isThinking: false };
+
+                          const isLastAssistant = isAssistant && i === chat.length - 1;
+                          const showThinkingAccordion = isAssistant && (hasThinking || (loading && isLastAssistant && deepThink));
+
+                          if (msg.text === '' && loading && isLastAssistant && !showThinkingAccordion) {
+                            return (
+                              <div className="flex items-center h-6 gap-1.5 mt-1">
+                                <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="prose prose-invert prose-p:leading-relaxed max-w-none text-[15px] text-gray-200 overflow-x-auto relative">
+                              {showThinkingAccordion && (
+                                <ThinkingAccordion 
+                                  thinkText={thinkText} 
+                                  isThinking={isThinking || (loading && isLastAssistant && !finalText)} 
+                                />
+                              )}
+
+                              {isAssistant && finalText && renderAutoPilotPlan(finalText) ? (
+                                renderAutoPilotPlan(finalText)
+                              ) : (
+                                <MemoizedMarkdown 
+                                  text={isAssistant ? finalText : msg.text} 
+                                  openCanvas={setCanvasState} 
+                                  onEditImage={handleOpenStudioForEdit} 
+                                />
+                              )}
+
+                              {loading && isLastAssistant && (
+                                <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse align-middle rounded-sm"></span>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {msg.role === 'assistant' && msg.text && msg.text.includes('image.pollinations.ai') && (
                           <div className="mt-2.5 flex items-center gap-2">
@@ -1543,13 +1924,22 @@ export default function Page() {
                     <button onClick={() => fileInputRef.current?.click()} className={`p-2 rounded-full transition-colors ${selectedImage ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'text-gray-400 hover:text-white hover:bg-white/5'}`} title="Unggah Gambar"><ImageIcon size={20} strokeWidth={1.5} /></button>
                     <button onClick={() => setShowCameraModal(true)} className="p-2 rounded-full text-gray-400 hover:text-[#FFBE98] hover:bg-[#FFBE98]/10 transition-colors" title="Ambil Foto Kamera"><Camera size={20} strokeWidth={1.5} /></button>
                     <button onClick={() => { setStudioReferencePhoto(null); setStudioInitialPrompt(''); setShowImageStudio(true); }} className="p-2 rounded-full text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-colors" title="Studio Gambar Real-time"><Palette size={20} strokeWidth={1.5} /></button>
+                    <button
+                      type="button"
+                      onClick={handleEnhancePrompt}
+                      disabled={isEnhancingPrompt}
+                      className={`p-2 rounded-full transition-all ${isEnhancingPrompt ? 'animate-spin text-[#FFBE98]' : 'text-gray-400 hover:text-[#FFBE98] hover:bg-[#FFBE98]/10'}`}
+                      title="Magic Enhancer: Tingkatkan Kualitas Prompt Secara Instan"
+                    >
+                      <Wand size={20} strokeWidth={1.5} />
+                    </button>
                     <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" className="hidden" />
                   </div>
 
                   <textarea
-                    ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
+                    ref={inputRef} value={input} onChange={handleInputChange}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
-                    placeholder={isUserBanned ? "Akun Diblokir" : (!user && guestChatCount >= 5 ? "Batas gratis habis. Login." : "Pesan Athlos AI...")}
+                    placeholder={isUserBanned ? "Akun Diblokir" : (!user && guestChatCount >= 5 ? "Batas gratis habis. Login." : "Pesan Athlos AI... (Gunakan ikon tongkat sihir untuk menyempurnakan prompt)")}
                     className="flex-1 bg-transparent py-2.5 px-3 md:px-4 outline-none text-white text-[14px] md:text-[15px] placeholder-gray-500 resize-none max-h-[120px] overflow-y-auto block leading-relaxed self-center"
                     rows={1}
                     disabled={isUserBanned || (!user && guestChatCount >= 5) || loading}
@@ -1573,21 +1963,45 @@ export default function Page() {
               <div className="flex flex-col md:flex-row justify-between items-center text-[10px] md:text-xs text-gray-500 mt-2 px-2 gap-2 text-center md:text-left">
                 <span className="hidden md:inline">{t.disclaimer}</span>
                 <span className="md:hidden opacity-80">{t.disclaimer.split('.')[0]}.</span>
-                <span className="flex flex-wrap justify-center items-center gap-1.5 md:gap-2">
-                  <select value={aiEngine} onChange={e => setAiEngine(e.target.value)} className="bg-transparent border border-[#555] rounded px-1 outline-none text-gray-400 py-0.5">
-                    <option value="gemini">Gemini</option>
-                  </select>
-                  <label className="flex items-center gap-1 cursor-pointer hover:text-white transition-colors">
+                <span className="flex flex-wrap justify-center items-center gap-1.5 md:gap-2.5">
+                  {/* Selector Audiens Multigenerasi */}
+                  <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-lg px-2 py-0.5">
+                    <span className="text-[11px] text-gray-400">Audiens:</span>
+                    <select 
+                      value={audience} 
+                      onChange={e => setAudience(e.target.value)} 
+                      className="bg-transparent text-xs font-medium text-[#FFBE98] outline-none cursor-pointer"
+                      title="Sesuaikan gaya bahasa dan kedalaman respons"
+                    >
+                      <option value="auto" className="bg-[#201b1a] text-white">⚡ Otomatis</option>
+                      <option value="kids" className="bg-[#201b1a] text-white">🧸 Anak-anak (Mudah & Ceria)</option>
+                      <option value="teens" className="bg-[#201b1a] text-white">🎓 Pelajar & Mahasiswa (Step-by-step)</option>
+                      <option value="pro" className="bg-[#201b1a] text-white">💼 Profesional & Bisnis (Eksekutif)</option>
+                      <option value="academic" className="bg-[#201b1a] text-white">🔬 Akademisi & Peneliti (Presisi Riset)</option>
+                    </select>
+                  </div>
+
+                  {/* Toggle Deep Reasoning (DeepSeek R1 style) */}
+                  <label className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border cursor-pointer transition-all ${deepThink ? 'bg-purple-950/40 border-purple-500/40 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.2)]' : 'bg-white/5 border-white/10 text-gray-400 hover:text-purple-300'}`}>
+                    <input 
+                      type="checkbox" 
+                      checked={deepThink} 
+                      onChange={e => setDeepThink(e.target.checked)} 
+                      className="hidden" 
+                    />
+                    <Brain size={13} className={deepThink ? 'text-purple-400 animate-pulse' : 'text-gray-400'} />
+                    <span className="text-[11px] font-medium" title="Berpikir mendalam sebelum menjawab (Deep Reasoning R1)">Deep Think</span>
+                  </label>
+
+                  <label className="flex items-center gap-1 cursor-pointer hover:text-white transition-colors text-gray-400">
                     <input type="checkbox" checked={factCheck} onChange={e => setFactCheck(e.target.checked)} className="accent-[#FFBE98]" />
                     <span title="Multi-Agent Fact Checker">Fakta</span>
                   </label>
-                  <label className="flex items-center gap-1 cursor-pointer hover:text-blue-400 transition-colors text-blue-400/80">
-                    <input type="checkbox" checked={autoPilot} onChange={e => setAutoPilot(e.target.checked)} className="accent-blue-500" />
-                    <span title="Autonomous Planner (Mendekomposisi Tugas)">Auto-Pilot 🚀</span>
-                  </label>
+                  
                   <span className="text-gray-600 hidden sm:inline">|</span>
-                  <span className="hidden sm:inline">{input.length} chars</span><span className="text-gray-600 hidden sm:inline">|</span>
-                  <span className="font-mono bg-[#2f2f2f] px-1.5 py-0.5 rounded text-[10px] hidden sm:inline">~{Math.ceil(input.length / 4)} tokens</span>
+                  <span className="hidden sm:inline text-gray-400">{input.length} chars</span>
+                  <span className="text-gray-600 hidden sm:inline">|</span>
+                  <span className="font-mono bg-white/5 px-1.5 py-0.5 rounded text-[10px] hidden sm:inline text-gray-400">~{Math.ceil(input.length / 4)} tokens</span>
                 </span>
               </div>
             </div>
